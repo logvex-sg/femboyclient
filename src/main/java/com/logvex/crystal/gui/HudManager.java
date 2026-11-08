@@ -101,6 +101,9 @@ public final class HudManager {
         register(new com.logvex.crystal.gui.hud.CommandCenterHudElement());
         // The Command Center roll-up is opt-in: the CommandCenter module reveals it.
         layout.entry(com.logvex.crystal.gui.hud.CommandCenterHudElement.ID).visible = false;
+        register(new com.logvex.crystal.gui.hud.ScanHudElement());
+        // The scan readout is opt-in: the WorldScanner module reveals it while scanning.
+        layout.entry("scan").visible = false;
     }
 
     private static String pingText(int ping) {

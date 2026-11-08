@@ -199,6 +199,7 @@ public final class CommandManager {
             case "waypoint", "wp" -> waypoint(args);
             case "baritone", "bari", "path" -> baritone(args);
             case "world", "worldinfo" -> world();
+            case "scan", "scanner" -> scan(args);
             case "entities", "entity" -> entities(args);
             case "browser", "entitybrowser" -> openEntityBrowser();
             case "notifications", "notifs" -> notifications(args);
@@ -793,6 +794,69 @@ public final class CommandManager {
         }
         for (String line : lines) {
             client.notify(line, NotificationLevel.INFO);
+        }
+    }
+
+    /**
+     * Controls the world scanner. Every subcommand maps to a real module method: nothing here is
+     * a stub, and the scanner itself only ever reads loaded chunks.
+     */
+    private void scan(List<String> args) {
+        var module = client.modules().byClass(com.logvex.crystal.module.world.WorldScannerModule.class);
+        if (module == null) {
+            client.notify("WorldScanner module is unavailable", NotificationLevel.ERROR);
+            return;
+        }
+        if (!module.isEnabled()) {
+            module.enable(client.modules());
+        }
+        String action = args.isEmpty() ? "status" : args.get(0).toLowerCase(Locale.ROOT);
+        switch (action) {
+            case "status" -> {
+                var snapshot = module.snapshot();
+                if (snapshot == null) {
+                    client.notify("Scanner not initialised", NotificationLevel.WARN);
+                    return;
+                }
+                client.notify("scan " + snapshot.state().label() + " " + Math.round(snapshot.progress() * 100) + "%",
+                        NotificationLevel.INFO);
+                client.notify("dimension " + snapshot.dimension() + " \u00b7 explored " + snapshot.exploredChunks()
+                        + " \u00b7 finds " + snapshot.discoveries(), NotificationLevel.INFO);
+                client.notify("flight " + snapshot.flightStatus() + " \u00b7 movement " + snapshot.movementStatus(),
+                        NotificationLevel.INFO);
+            }
+            case "start" -> module.start();
+            case "pause" -> module.pause();
+            case "resume" -> module.resume();
+            case "stop" -> module.stop();
+            case "reset" -> module.resetSession();
+            case "gui", "screen" -> {
+                if (ScreenGuard.fontsReady()) {
+                    MinecraftClient.getInstance().setScreen(new com.logvex.crystal.gui.ScanDashboardScreen(
+                            client.theme(), module));
+                }
+            }
+            case "export" -> {
+                module.saveDatabase();
+                client.notify("Saved scan database (" + module.database().sessions().size() + " sessions)",
+                        NotificationLevel.SUCCESS);
+            }
+            case "profile" -> {
+                if (args.size() < 2) {
+                    client.notify("Usage: ; scan profile <name>  |  ; scan profile save <name>",
+                            NotificationLevel.WARN);
+                    return;
+                }
+                if (args.get(1).equalsIgnoreCase("save") && args.size() >= 3) {
+                    module.saveProfile(args.get(2));
+                } else if (!module.applyProfile(args.get(1))) {
+                    client.notify("No scan profile named '" + args.get(1) + "'", NotificationLevel.WARN);
+                } else {
+                    client.notify("Applied scan profile '" + args.get(1) + "'", NotificationLevel.SUCCESS);
+                }
+            }
+            default -> client.notify("Usage: ; scan [start|pause|resume|stop|reset|status|gui|export|profile]",
+                    NotificationLevel.WARN);
         }
     }
 

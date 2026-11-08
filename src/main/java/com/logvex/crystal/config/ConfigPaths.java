@@ -55,6 +55,11 @@ public final class ConfigPaths {
         return directory().resolve("extensions.json");
     }
 
+    /** Persisted world-scanner sessions and scan profiles. */
+    public static Path scanSessions() {
+        return directory().resolve("scan-sessions.json");
+    }
+
     /** Directory holding named configuration profiles. */
     public static Path profiles() {
         return directory().resolve("profiles");
