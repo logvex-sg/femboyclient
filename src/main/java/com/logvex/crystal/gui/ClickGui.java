@@ -1424,9 +1424,7 @@ public final class ClickGui extends Screen {
         };
         // Search spans every category; the page filter only applies when the box is empty.
         // The recent page keeps most-recent-first order unless the user asked for another sort.
-        ModuleQuery.SortOrder effective = page == Page.RECENT && sortOrder == ModuleQuery.SortOrder.DEFAULT
-                ? ModuleQuery.SortOrder.DEFAULT : sortOrder;
-        List<Module> result = ModuleQuery.apply(modules.all(), search, pageFilter, effective, recent);
+        List<Module> result = ModuleQuery.apply(modules.all(), search, pageFilter, sortOrder, recent);
         if (page == Page.RECENT && sortOrder == ModuleQuery.SortOrder.DEFAULT && search.isBlank()) {
             List<String> recents = recent;
             result.sort((a, b) -> Integer.compare(recents.indexOf(a.name()), recents.indexOf(b.name())));
