@@ -71,6 +71,10 @@ public final class StructureClassifier {
             return verdict(StructureCategory.MOB_FARM, c,
                     "spawner present" + (deep ? ", below y50" : ""));
         }
+        // A bell is a village marker and is essentially unique to villages.
+        if (s.bells() > 0 && s.chests() == 0 && s.crops() == 0 && builtRatio < 0.35) {
+            return verdict(StructureCategory.VILLAGE, 0.66, s.bells() + " bell/marker block(s)");
+        }
         // Chests are the clearest storage signal; density and built context raise confidence.
         if (s.chests() > 0) {
             double c = 0.6 + Math.min(0.25, s.chests() * 0.06) + (builtRatio >= 0.1 ? 0.1 : 0);
@@ -93,6 +97,12 @@ public final class StructureClassifier {
         // A high density of man-made blocks with no crops/chests = a building.
         if (builtRatio >= 0.28) {
             return verdict(StructureCategory.BUILDING, 0.62 + Math.min(0.2, builtRatio), "built-block density");
+        }
+        // Man-made blocks at a low but non-trivial density, spread over a large area, is more
+        // likely a player's own scattered construction than a single structure.
+        if (builtRatio >= 0.06 && s.building() >= 24 && s.terrain() != TerrainType.NETHER) {
+            return verdict(StructureCategory.PLAYER_BUILD, 0.55 + Math.min(0.15, builtRatio),
+                    "scattered man-made blocks");
         }
         // Deep, mostly solid, ore-rich and not built = a mine.
         if (deep && builtRatio < 0.05 && s.ores() >= 2) {

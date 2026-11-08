@@ -10,6 +10,7 @@ import net.minecraft.block.BlockState;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.network.ClientPlayerEntity;
 import net.minecraft.client.world.ClientWorld;
+import net.minecraft.world.chunk.WorldChunk;
 import net.minecraft.registry.Registries;
 import net.minecraft.util.math.BlockPos;
 
@@ -115,6 +116,8 @@ public final class MinecraftWorldSampler implements WorldSampler {
         int redstone = 0;
         int spawners = 0;
         int portals = 0;
+        int bells = 0;
+        boolean flowingLiquids = false;
         int surfaceY = Integer.MIN_VALUE;
         String surfaceBlock = "";
 
@@ -129,9 +132,13 @@ public final class MinecraftWorldSampler implements WorldSampler {
                     }
                     nonAir++;
                     String id = Registries.BLOCK.getId(state.getBlock()).getPath();
-                    boolean fluid = !state.getFluidState().isEmpty();
+                    var fluidState = state.getFluidState();
+                    boolean fluid = !fluidState.isEmpty();
                     if (fluid) {
                         water++;
+                        if (fluidState.getLevel() > 0) {
+                            flowingLiquids = true;
+                        }
                     }
                     if (state.isOpaqueFullCube()) {
                         solid++;
@@ -168,6 +175,9 @@ public final class MinecraftWorldSampler implements WorldSampler {
                     if (BlockFamilies.isPortal(id)) {
                         portals++;
                     }
+                    if (BlockFamilies.isVillageMarker(id)) {
+                        bells++;
+                    }
                 }
                 // Surface detection at full vertical resolution, top-down within the window.
                 for (int y = maxY; y >= minY; y--) {
@@ -185,8 +195,18 @@ public final class MinecraftWorldSampler implements WorldSampler {
 
         boolean deep = surfaceY != Integer.MIN_VALUE && surfaceY < 50;
         TerrainType terrain = StructureClassifier.classifyTerrain(surfaceBlock, water, nonAir, logs, leaves, deep);
+        WorldChunk chunk = world.getChunk(chunkX, chunkZ);
+        long inhabitedTicks = -1L;
+        Boolean lightComplete = null;
+        if (chunk != null) {
+            // Both are values the client already holds: inhabited time is synced with the chunk,
+            // and the light flag reflects whether the server sent a populated light layer. Neither
+            // requires a request, so this cannot bypass a server-side protection.
+            inhabitedTicks = chunk.getInhabitedTime();
+            lightComplete = chunk.isLightOn();
+        }
         return new ChunkSample(dimension(), chunkX, chunkZ, true, surfaceY, surfaceBlock, sampled, nonAir,
                 solid, transparent, water, logs, leaves, crops, building, ores, chests, lights, redstone,
-                spawners, portals, terrain, nowMillis);
+                spawners, portals, bells, terrain, flowingLiquids, inhabitedTicks, lightComplete, nowMillis);
     }
 }

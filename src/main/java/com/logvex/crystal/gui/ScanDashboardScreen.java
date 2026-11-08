@@ -207,8 +207,8 @@ public final class ScanDashboardScreen extends Screen {
 
     private int categoryColor(Palette palette, StructureCategory category) {
         return switch (category) {
-            case BUILDING, STORAGE -> palette.primary();
-            case FARM -> palette.enabled();
+            case BUILDING, STORAGE, PLAYER_BUILD -> palette.primary();
+            case FARM, VILLAGE -> palette.enabled();
             case REDSTONE, PORTAL -> palette.danger();
             case MOB_FARM, UNDERGROUND, MINE, ABANDONED -> palette.secondary();
             case NATURAL -> palette.tertiary();

@@ -32,7 +32,13 @@ package com.logvex.crystal.scan.world;
  * @param redstone        redstone components (dust, repeater, piston, ...)
  * @param spawners        spawner blocks
  * @param portals         portal blocks (nether/end)
+ * @param bells           village marker blocks (bells, and jigsaw/structure blocks)
  * @param terrain         the coarse terrain classification
+ * @param flowingLiquids  true when flowing (not source) liquid was seen in the chunk
+ * @param inhabitedTicks  the chunk's inhabited time in ticks, or {@code -1} when the client does
+ *                        not expose it
+ * @param lightComplete   whether the server sent a populated light layer, or {@code null} when
+ *                        the client cannot tell
  * @param observedAtMillis wall-clock time the sample was taken
  */
 public record ChunkSample(
@@ -57,13 +63,42 @@ public record ChunkSample(
         int redstone,
         int spawners,
         int portals,
+        int bells,
         TerrainType terrain,
+        boolean flowingLiquids,
+        long inhabitedTicks,
+        Boolean lightComplete,
         long observedAtMillis) {
 
     /** A sample for a chunk that was not loaded: no counts, nothing to classify. */
     public static ChunkSample unloaded(String dimension, int chunkX, int chunkZ, long nowMillis) {
         return new ChunkSample(dimension, chunkX, chunkZ, false, Integer.MIN_VALUE, "", 0, 0, 0, 0, 0,
-                0, 0, 0, 0, 0, 0, 0, 0, 0, 0, TerrainType.UNKNOWN, nowMillis);
+                0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, TerrainType.UNKNOWN, false, -1L, null, nowMillis);
+    }
+
+    /**
+     * Convenience constructor for the common case where the extra intelligence signals (village
+     * markers, flowing liquids, inhabited time, light completeness) are not known. Keeps callers
+     * that only have the basic block counts simple, and defaults the unknowns to "not observed".
+     */
+    public ChunkSample(String dimension, int chunkX, int chunkZ, boolean loaded, int surfaceY,
+                       String surfaceBlock, int sampled, int nonAir, int solid, int transparent, int water,
+                       int logs, int leaves, int crops, int building, int ores, int chests, int lightSources,
+                       int redstone, int spawners, int portals, TerrainType terrain, long observedAtMillis) {
+        this(dimension, chunkX, chunkZ, loaded, surfaceY, surfaceBlock, sampled, nonAir, solid, transparent,
+                water, logs, leaves, crops, building, ores, chests, lightSources, redstone, spawners, portals,
+                0, terrain, false, -1L, null, observedAtMillis);
+    }
+
+    /**
+     * The independent evidence signals behind this sample, for {@link VerificationStatus}.
+     *
+     * <p>Only raw counts are stored on the record; the derived signals are computed here so the
+     * stored form stays small and a change to the thresholds cannot corrupt persisted data.
+     */
+    public ObservationSignals signals() {
+        return new ObservationSignals(builtRatio(), chests, spawners, crops, redstone, lightSources,
+                ores, logs + leaves, flowingLiquids, inhabitedTicks, lightComplete);
     }
 
     /** True when the chunk looked like void or an empty/unloaded column with no blocks at all. */

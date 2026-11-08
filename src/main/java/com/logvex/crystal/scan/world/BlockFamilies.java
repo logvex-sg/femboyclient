@@ -85,4 +85,33 @@ public final class BlockFamilies {
         String s = id(blockId);
         return s.contains("nether_portal") || s.contains("end_portal") || s.contains("end_gateway");
     }
+
+    /**
+     * Village markers. A bell is essentially unique to a village, and jigsaw/structure blocks only
+     * appear where a structure was generated, so either is strong evidence of a village.
+     */
+    public static boolean isVillageMarker(String blockId) {
+        String s = id(blockId);
+        return s.equals("bell") || s.endsWith("_bell") || s.equals("jigsaw")
+                || s.equals("structure_block");
+    }
+
+    /**
+     * A weight for a storage block, used when scoring how strong a storage finding is. Shulker
+     * boxes and chests are worth more than a furnace, matching the reference stash-finder's
+     * ranking. The scanner accumulates this into a chunk's storage score rather than a bare count.
+     */
+    public static int storageWeight(String blockId) {
+        String s = id(blockId);
+        if (s.contains("shulker")) {
+            return 4;
+        }
+        if (s.contains("chest") || s.contains("barrel")) {
+            return 3;
+        }
+        if (s.contains("hopper") || s.contains("dispenser") || s.contains("dropper")) {
+            return 2;
+        }
+        return 1;
+    }
 }

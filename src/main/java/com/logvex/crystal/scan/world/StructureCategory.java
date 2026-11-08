@@ -16,10 +16,18 @@ public enum StructureCategory {
     REDSTONE("redstone"),
     UNDERGROUND("underground"),
     ABANDONED("abandoned"),
+    VILLAGE("village"),
+    PLAYER_BUILD("player build"),
     MOB_FARM("mob farm"),
     MINE("mine"),
     PORTAL("portal"),
     OTHER("other");
+
+    /** True for categories that are player-made rather than world-generated. */
+    public boolean playerMade() {
+        return this == BUILDING || this == STORAGE || this == FARM || this == REDSTONE
+                || this == MOB_FARM || this == PLAYER_BUILD;
+    }
 
     private final String label;
 

@@ -55,6 +55,11 @@ public final class ConfigPaths {
         return directory().resolve("extensions.json");
     }
 
+    /** Persisted world-intelligence observations, route history and AI summaries. */
+    public static Path worldIntelligence() {
+        return directory().resolve("world-intelligence.json");
+    }
+
     /** Persisted world-scanner sessions and scan profiles. */
     public static Path scanSessions() {
         return directory().resolve("scan-sessions.json");

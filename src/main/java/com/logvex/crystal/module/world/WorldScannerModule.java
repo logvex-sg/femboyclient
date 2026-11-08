@@ -12,11 +12,17 @@ import com.logvex.crystal.scan.world.ScanProfile;
 import com.logvex.crystal.scan.world.ScanSnapshot;
 import com.logvex.crystal.scan.world.ScanState;
 import com.logvex.crystal.scan.world.StructureCategory;
+import com.logvex.crystal.scan.world.WorldIntelligence;
+import com.logvex.crystal.scan.world.WorldIntelligenceAi;
+import com.logvex.crystal.scan.world.DiscoveryDatabase;
+import com.logvex.crystal.scan.world.MovementCoordinator;
+import com.logvex.crystal.scan.world.BaritoneController;
 import com.logvex.crystal.scan.world.WorldMapper;
 import com.logvex.crystal.scan.world.WorldScanner;
 import com.logvex.crystal.scan.world.mc.BaritoneMovementPort;
 import com.logvex.crystal.scan.world.mc.MinecraftFlightPort;
 import com.logvex.crystal.scan.world.mc.MinecraftWorldSampler;
+import com.logvex.crystal.scan.world.mc.MiniAiBackend;
 import com.logvex.crystal.setting.BooleanSetting;
 import com.logvex.crystal.setting.EnumSetting;
 import com.logvex.crystal.setting.IntSetting;
@@ -47,6 +53,14 @@ public final class WorldScannerModule extends Module {
     private final BooleanSetting offThread = add("OffThreadClassify", "Classify chunks on a background worker.", true);
     private final IntSetting observationCap = add("ObservationCap", "Maximum chunks retained per dimension.", 4000, 256, 20000);
     private final EnumSetting<Mode> mode = add("Mode", "How the scanner behaves when enabled.", Mode.MANUAL);
+    private final BooleanSetting intelligence = add("WorldIntelligence",
+            "Record verified discoveries, region progress and cluster targets in the discovery database.", true);
+    private final BooleanSetting autonomousMovement = add("AutonomousMovement",
+            "Let the scanner drive the player between waypoints (claims movement; never fights another module).",
+            true);
+    private final BooleanSetting modelSummaries = add("ModelSummaries",
+            "Allow the optional local model to rephrase world-intelligence answers. Deterministic without it.",
+            true);
 
     /** How the scanner behaves. */
     public enum Mode {
@@ -61,6 +75,7 @@ public final class WorldScannerModule extends Module {
     // the game has launched, and the registry test constructs every module without a game.
     private ScanDatabase database;
     private WorldScanner scanner;
+    private WorldIntelligence intelligenceLayer;
     private String lastStateMessage = "";
     private boolean started;
 
@@ -73,6 +88,10 @@ public final class WorldScannerModule extends Module {
     protected void onEnable() {
         db().load();
         ensureScanner();
+        if (intelligence.value()) {
+            ensureIntelligence().load();
+            setIntelligenceHudVisible(true);
+        }
         if (mode.value() == Mode.AUTO) {
             MinecraftClient client = MinecraftClient.getInstance();
             if (client != null && client.world != null) {
@@ -85,12 +104,17 @@ public final class WorldScannerModule extends Module {
     protected void onDisable() {
         stop();
         saveDatabase();
+        setIntelligenceHudVisible(false);
     }
 
     @Override
     public void onDisconnect() {
         // Stop the run but do not disable: the module resumes on the next world if in AUTO mode.
-        stop();
+        if (intelligenceLayer != null) {
+            intelligenceLayer.onDisconnect(System.currentTimeMillis());
+        } else {
+            stop();
+        }
         started = false;
     }
 
@@ -108,6 +132,10 @@ public final class WorldScannerModule extends Module {
         }
         if (scanner.isRunning()) {
             scanner.tick(System.currentTimeMillis());
+            if (intelligence.value() && intelligenceLayer != null) {
+                intelligenceLayer.ai().setModelAllowed(modelSummaries.value());
+                intelligenceLayer.tick(System.currentTimeMillis());
+            }
         }
         String message = scanner.message();
         if (!message.isEmpty() && !message.equals(lastStateMessage)
@@ -121,6 +149,10 @@ public final class WorldScannerModule extends Module {
 
     @Override
     protected void onShutdown() {
+        if (intelligenceLayer != null) {
+            intelligenceLayer.save();
+            intelligenceLayer.close();
+        }
         if (scanner != null) {
             scanner.close();
         }
@@ -137,6 +169,27 @@ public final class WorldScannerModule extends Module {
         scanner = new WorldScanner(new MinecraftWorldSampler(client), new MinecraftFlightPort(client),
                 new BaritoneMovementPort(baritone), mapper, db());
         scanner.configure(scanConfig());
+    }
+
+    /**
+     * Builds the world-intelligence layer lazily, so the registry test (which constructs every
+     * module without a running game) never touches the config directory or a live client.
+     */
+    private WorldIntelligence ensureIntelligence() {
+        if (intelligenceLayer != null) {
+            return intelligenceLayer;
+        }
+        ensureScanner();
+        CrystalClient bootstrap = CrystalClient.get();
+        var baritoneService = bootstrap == null ? null : bootstrap.baritone();
+        MovementCoordinator movement = new MovementCoordinator();
+        BaritoneController baritone = new BaritoneController(baritoneService, movement,
+                WorldIntelligence.MOVEMENT_OWNER);
+        var aiManager = bootstrap == null ? null : bootstrap.ai();
+        WorldIntelligenceAi ai = new WorldIntelligenceAi(aiManager == null ? null : new MiniAiBackend(aiManager));
+        DiscoveryDatabase discoveryDb = new DiscoveryDatabase(ConfigPaths.worldIntelligence());
+        intelligenceLayer = new WorldIntelligence(scanner, discoveryDb, movement, baritone, ai);
+        return intelligenceLayer;
     }
 
     private ScanDatabase db() {
@@ -157,7 +210,13 @@ public final class WorldScannerModule extends Module {
     /** Starts a scan, reporting why it could not when the world is not ready. */
     public void start() {
         ensureScanner();
-        String error = scanner.start(System.currentTimeMillis());
+        boolean autonomous = autonomousMovement.value();
+        String error;
+        if (intelligence.value()) {
+            error = ensureIntelligence().start(System.currentTimeMillis(), autonomous);
+        } else {
+            error = scanner.start(System.currentTimeMillis());
+        }
         if (error != null) {
             notifyUser("Cannot start scan: " + error, NotificationLevel.WARN);
             return;
@@ -168,29 +227,52 @@ public final class WorldScannerModule extends Module {
     }
 
     public void pause() {
-        if (scanner != null) {
+        if (scanner == null) {
+            return;
+        }
+        if (intelligenceLayer != null) {
+            intelligenceLayer.pause(System.currentTimeMillis());
+        } else {
             scanner.pause(System.currentTimeMillis());
         }
     }
 
     public void resume() {
-        if (scanner != null) {
+        if (scanner == null) {
+            return;
+        }
+        if (intelligenceLayer != null) {
+            String error = intelligenceLayer.resume(System.currentTimeMillis());
+            if (error != null) {
+                notifyUser("Cannot resume: " + error, NotificationLevel.WARN);
+            }
+        } else {
             scanner.resume(System.currentTimeMillis());
         }
     }
 
     public void stop() {
-        if (scanner != null && scanner.isRunning()) {
-            scanner.stop(System.currentTimeMillis(), ScanState.IDLE);
-            started = false;
-            setHudVisible(false);
-            saveDatabase();
+        if (scanner == null || !scanner.isRunning()) {
+            return;
         }
+        if (intelligenceLayer != null) {
+            intelligenceLayer.stop(System.currentTimeMillis());
+        } else {
+            scanner.stop(System.currentTimeMillis(), ScanState.IDLE);
+        }
+        started = false;
+        setHudVisible(false);
+        saveDatabase();
     }
 
     /** Cancels the run and clears the map and session history. */
     public void resetSession() {
-        if (scanner != null) {
+        if (scanner == null) {
+            return;
+        }
+        if (intelligenceLayer != null) {
+            intelligenceLayer.reset(System.currentTimeMillis());
+        } else {
             scanner.reset(System.currentTimeMillis());
         }
         started = false;
@@ -200,9 +282,18 @@ public final class WorldScannerModule extends Module {
 
     /** Shows or hides the scanner's HUD readout, if the HUD is available. */
     private void setHudVisible(boolean visible) {
+        setElementVisible("scan", visible);
+    }
+
+    /** Shows or hides the world-intelligence HUD readout, if the HUD is available. */
+    private void setIntelligenceHudVisible(boolean visible) {
+        setElementVisible(com.logvex.crystal.gui.hud.IntelligenceHudElement.ID, visible);
+    }
+
+    private void setElementVisible(String id, boolean visible) {
         try {
             if (context() != null && context().hudManager() != null) {
-                context().hudManager().setElementVisible("scan", visible);
+                context().hudManager().setElementVisible(id, visible);
             }
         } catch (RuntimeException ignored) {
             // The HUD is optional in tests; a missing manager must not break the module.
@@ -223,6 +314,29 @@ public final class WorldScannerModule extends Module {
 
     public WorldMapper mapper() {
         return mapper;
+    }
+
+    /**
+     * The world-intelligence layer, or {@code null} when the module has never been enabled. Only
+     * built on demand so a headless registry test never touches the config directory.
+     */
+    public WorldIntelligence intelligence() {
+        return intelligenceLayer;
+    }
+
+    /** Whether the intelligence layer is switched on in settings. */
+    public boolean intelligenceEnabled() {
+        return intelligence.value();
+    }
+
+    /** Whether the scanner is allowed to drive the player. */
+    public boolean autonomousMovementEnabled() {
+        return autonomousMovement.value();
+    }
+
+    /** Whether the optional local model may rephrase world-intelligence answers. */
+    public boolean modelSummariesEnabled() {
+        return modelSummaries.value();
     }
 
     public ScanDatabase database() {

@@ -36,6 +36,16 @@ public final class WorldMapper {
      * stored entry.
      */
     public MappedChunk record(ChunkSample sample, Classification classification, long nowMillis) {
+        return record(sample, classification, VerificationStatus.LIKELY, nowMillis);
+    }
+
+    /**
+     * Records a sample with an explicit verification status. A chunk that was already known is
+     * updated in place (so an unchanged region is not reprocessed into a new object graph); a new
+     * chunk is appended. Returns the stored entry.
+     */
+    public MappedChunk record(ChunkSample sample, Classification classification,
+                              VerificationStatus verification, long nowMillis) {
         if (sample == null || sample.dimension() == null) {
             return null;
         }
@@ -45,14 +55,15 @@ public final class WorldMapper {
         MappedChunk updated;
         if (existing != null) {
             updated = new MappedChunk(sample, existing.category(), existing.confidence(),
-                    existing.manual(), nowMillis);
+                    existing.verification(), existing.manual(), nowMillis);
             if (!existing.manual() && classification != null) {
-                updated = updated.withClassification(classification, nowMillis);
+                updated = updated.withClassification(classification, verification, nowMillis);
             }
         } else {
             updated = new MappedChunk(sample,
                     classification == null ? StructureCategory.OTHER : classification.category(),
-                    classification == null ? 0 : classification.confidence(), false, nowMillis);
+                    classification == null ? 0 : classification.confidence(),
+                    classification == null ? VerificationStatus.UNCERTAIN : verification, false, nowMillis);
         }
         index.put(key, updated);
         evictIfNeeded(index);
@@ -123,11 +134,22 @@ public final class WorldMapper {
         return total;
     }
 
-    /** Number of chunks in a dimension whose (non-manual) verdict is a confident find. */
+    /** Number of chunks in a dimension that count as real discoveries (see {@link MappedChunk}). */
     public int discoveryCount(String dimension) {
         int count = 0;
         for (MappedChunk chunk : chunks(dimension)) {
-            if (chunk.confidence() >= 0.6 && chunk.category() != StructureCategory.OTHER) {
+            if (chunk.discovered() && chunk.category() != StructureCategory.OTHER) {
+                count++;
+            }
+        }
+        return count;
+    }
+
+    /** How many chunks in a dimension hold an uncertain (not yet a real discovery) verdict. */
+    public int uncertainCount(String dimension) {
+        int count = 0;
+        for (MappedChunk chunk : chunks(dimension)) {
+            if (!chunk.manual() && !chunk.verification().countsAsDiscovery()) {
                 count++;
             }
         }

@@ -60,6 +60,15 @@ public final class WorldScanner {
     private record ClassifiedResult(ChunkSample sample, Classification classification, long atMillis) {
     }
 
+    /**
+     * A classified chunk handed to the world-intelligence layer.
+     *
+     * <p>The classification computed here is passed on rather than recomputed downstream, so the
+     * (possibly expensive, possibly hinted) classification happens exactly once per chunk.
+     */
+    public record Classified(ChunkSample sample, Classification classification) {
+    }
+
     private final WorldSampler sampler;
     private final FlightPort flightPort;
     private final MovementPort movementPort;
@@ -69,6 +78,7 @@ public final class WorldScanner {
     private final ExecutorService classifierWorker;
     private final boolean ownsWorker;
     private final ConcurrentLinkedQueue<ClassifiedResult> completed = new ConcurrentLinkedQueue<>();
+    private final ConcurrentLinkedQueue<Classified> intelligenceQueue = new ConcurrentLinkedQueue<>();
     private final AtomicInteger inFlight = new AtomicInteger();
     private final AtomicBoolean closed = new AtomicBoolean();
 
@@ -77,6 +87,7 @@ public final class WorldScanner {
 
     private ScanConfig config = ScanConfig.defaults();
     private volatile ScanState state = ScanState.IDLE;
+    private boolean autonomous = true;
     private CancellationToken token = new CancellationToken();
     private Function<ChunkSample, StructureCategory> hintSupplier;
     private List<RoutePlanner.Waypoint> route = List.of();
@@ -158,6 +169,15 @@ public final class WorldScanner {
         return state.running();
     }
 
+    /**
+     * Whether the run is allowed to drive the player. When false the scanner samples the chunks
+     * around wherever the player already is and never calls the movement port, so it can never
+     * fight another module for control. Set by {@link #start(long, boolean)}.
+     */
+    public boolean autonomous() {
+        return autonomous;
+    }
+
     /** Applies a new configuration snapshot; takes effect on the next tick, never mid-tick. */
     public void configure(ScanConfig newConfig) {
         if (newConfig != null) {
@@ -172,6 +192,16 @@ public final class WorldScanner {
      * session, plans the route, engages flight when configured and moves to {@link ScanState#MAPPING}.
      */
     public String start(long nowMillis) {
+        return start(nowMillis, true);
+    }
+
+    /**
+     * Starts a run, optionally without autonomous movement. When {@code autonomous} is false the
+     * scanner never calls the movement port and simply samples the chunks around the player, so a
+     * user who does not want the client to drive them can still use the scanner.
+     */
+    public String start(long nowMillis, boolean autonomous) {
+        this.autonomous = autonomous;
         if (state.running()) {
             return "already running";
         }
@@ -188,6 +218,7 @@ public final class WorldScanner {
         agent.begin(bounds, route, dimension, sampler.playerBlockX(), sampler.playerBlockZ(), 0);
         agent.reset();
         completed.clear();
+        intelligenceQueue.clear();
         token = new CancellationToken("scan started");
         startedAtMillis = nowMillis;
         tickCount = 0;
@@ -198,7 +229,7 @@ public final class WorldScanner {
         state = ScanState.INITIALIZING;
         message = "route of " + route.size() + " waypoints";
 
-        if (config.useFlight()) {
+        if (autonomous && config.useFlight()) {
             FlightController.FlightResult result = flight.engage(flightPort, 20.0);
             if (!result.ok()) {
                 message = result.message();
@@ -243,6 +274,7 @@ public final class WorldScanner {
     public void stop(long nowMillis, ScanState finalState) {
         token.cancel("stopped by user");
         completed.clear();
+        intelligenceQueue.clear();
         movementPort().stop();
         flight.release(flightPort);
         state = finalState == null ? ScanState.IDLE : finalState;
@@ -363,7 +395,7 @@ public final class WorldScanner {
                 return;
             }
 
-            boolean moving = decision.moveToWaypoint() && movementPort().available();
+            boolean moving = decision.moveToWaypoint() && autonomous && movementPort().available();
             if (moving) {
                 movementPort().goTo(decision.waypointX(), sampler.playerBlockY(), decision.waypointZ());
             }
@@ -397,9 +429,12 @@ public final class WorldScanner {
             if (session != null) {
                 session.setProgress(agent.routeIndex(), route.size(), nowMillis);
             }
-            if (state == ScanState.MAPPING && moving) {
+            boolean analysing = pendingClassifications() > 0;
+            if (moving) {
                 state = ScanState.EXPLORING;
-            } else if (state == ScanState.EXPLORING && !moving) {
+            } else if (analysing) {
+                state = ScanState.ANALYZING;
+            } else {
                 state = ScanState.MAPPING;
             }
         } catch (Throwable t) {
@@ -464,7 +499,8 @@ public final class WorldScanner {
         }
     }
 
-    private StructureCategory hintFor(ChunkSample sample) {
+    /** The category hint supplied by an external source for a sample, or null. */
+    public StructureCategory hintFor(ChunkSample sample) {
         Function<ChunkSample, StructureCategory> supplier = hintSupplier;
         if (supplier == null) {
             return null;
@@ -490,11 +526,27 @@ public final class WorldScanner {
         if (token.isCancelled()) {
             return;
         }
-        MappedChunk mapped = mapper.record(sample, classification, nowMillis);
+        VerificationStatus status = ObservationEngine.verify(sample, classification);
+        MappedChunk mapped = mapper.record(sample, classification, status, nowMillis);
         ScanSession session = session();
         if (session != null && mapped != null) {
             session.recordChunk(mapped, nowMillis);
         }
+        // Hand the classified chunk to the intelligence layer, bounded so a long run cannot grow
+        // memory without limit if the consumer stalls.
+        if (intelligenceQueue.size() < MAX_IN_FLIGHT * 8) {
+            intelligenceQueue.add(new Classified(sample, classification));
+        }
+    }
+
+    /** Drains the classified chunks awaiting the intelligence layer. Called on the client thread. */
+    public java.util.List<Classified> drainPendingSamples() {
+        java.util.List<Classified> drained = new java.util.ArrayList<>();
+        Classified next;
+        while ((next = intelligenceQueue.poll()) != null) {
+            drained.add(next);
+        }
+        return drained;
     }
 
     // ------------------------------------------------------------------ queries
@@ -544,6 +596,15 @@ public final class WorldScanner {
                 classifierWorker.shutdownNow();
             }
         }
+    }
+
+    /** The dimension the scanner is observing, or the last one it observed. */
+    public String currentDimension() {
+        ScanSession session = session();
+        if (session != null) {
+            return session.dimension();
+        }
+        return sampler == null ? "" : sampler.dimension();
     }
 
     /** Convenience for tests and diagnostics: the planned route size. */
