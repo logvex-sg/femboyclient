@@ -8,6 +8,7 @@ import com.logvex.crystal.gui.widget.ColorPicker;
 import com.logvex.crystal.module.Category;
 import com.logvex.crystal.module.Module;
 import com.logvex.crystal.module.ModuleManager;
+import com.logvex.crystal.module.ModuleQuery;
 import com.logvex.crystal.render.RenderUtil;
 import com.logvex.crystal.setting.BooleanSetting;
 import com.logvex.crystal.setting.ColorSetting;
@@ -86,6 +87,7 @@ public final class ClickGui extends Screen {
     private Category selectedCategory = Category.COMBAT;
     private Page page = Page.MODULES;
     private String search = "";
+    private ModuleQuery.SortOrder sortOrder = ModuleQuery.SortOrder.DEFAULT;
     private Module expanded;
     private Module bindingModule;
     private Setting<?> bindingSetting;
@@ -200,6 +202,8 @@ public final class ClickGui extends Screen {
         int virtualHeight = vh();
         int virtualMouseX = (int) Math.round(mouseX / scale);
         int virtualMouseY = (int) Math.round(mouseY / scale);
+        lastMouseX = virtualMouseX;
+        lastMouseY = virtualMouseY;
 
         int margin = 18;
         int animOffset = (int) ((1f - open) * 14);
@@ -259,17 +263,21 @@ public final class ClickGui extends Screen {
 
     /** Draws the hover tooltip for the element under the cursor, clamped to the screen. */
     private void drawTooltip(DrawContext context, Palette palette, int mouseX, int mouseY) {
+        String[] bodyLines = tooltipBody == null ? new String[0] : tooltipBody.split("\n");
         int titleWidth = textRenderer.getWidth(tooltipTitle);
-        int bodyWidth = tooltipBody == null ? 0 : textRenderer.getWidth(tooltipBody);
+        int bodyWidth = 0;
+        for (String line : bodyLines) {
+            bodyWidth = Math.max(bodyWidth, textRenderer.getWidth(line));
+        }
         int w = Math.max(titleWidth, bodyWidth) + 12;
-        int h = tooltipBody == null ? 18 : 28;
+        int h = bodyLines.length == 0 ? 18 : 24 + bodyLines.length * 10;
         int x = Math.min(mouseX + 12, width - w - 4);
         int y = Math.min(mouseY + 10, height - h - 4);
         RenderUtil.softShadow(context, x, y, w, h, r(4), 90);
         RenderUtil.roundedPanel(context, x, y, w, h, r(4), palette.panel(), palette.border());
         context.drawTextWithShadow(textRenderer, tooltipTitle, x + 6, y + 5, palette.primary());
-        if (tooltipBody != null) {
-            context.drawTextWithShadow(textRenderer, tooltipBody, x + 6, y + 15, palette.textDim());
+        for (int i = 0; i < bodyLines.length; i++) {
+            context.drawTextWithShadow(textRenderer, bodyLines[i], x + 6, y + 15 + i * 10, palette.textDim());
         }
     }
 
@@ -436,7 +444,9 @@ public final class ClickGui extends Screen {
 
     private void drawSearchBar(DrawContext context, Palette palette, int x, int right) {
         int y = panelTop + HEADER_HEIGHT + 4;
-        int w = right - x;
+        int sortW = 74;
+        int sortX = right - sortW;
+        int w = sortX - 6 - x;
         RenderUtil.roundedPanel(context, x, y, w, 16, r(5), ColorUtil.scaleAlpha(palette.panelAlt(), 0.9f), palette.borderSoft());
         // Gradient border hint under the search field.
         RenderUtil.horizontalGradient(context, x + 2, y + 15, w - 4, 1, palette.accentGradientStart(), palette.accentGradientEnd());
@@ -445,6 +455,33 @@ public final class ClickGui extends Screen {
         boolean searchIcon = com.logvex.crystal.assets.Assets.icon(context, "search", x + 11, y + 8, 10, color);
         context.drawTextWithShadow(textRenderer, (searchIcon ? "" : SEARCH_GLYPH) + text,
                 x + (searchIcon ? 19 : 5), y + 4, color);
+        // Sort control: cycles the ordering of the module list. Its own hit box is captured
+        // in searchSortX so the click path uses exactly what was drawn.
+        searchSortX = sortX;
+        searchSortY = y;
+        searchSortW = sortW;
+        searchSortH = 16;
+        boolean hovered = mouseXIn(sortX, sortX + sortW) && mouseYIn(y, y + 16);
+        RenderUtil.roundedPanel(context, sortX, y, sortW, 16, r(5),
+                hovered ? palette.panelHover() : ColorUtil.scaleAlpha(palette.panelAlt(), 0.9f), palette.borderSoft());
+        context.drawTextWithShadow(textRenderer, "\u2195 " + sortOrder.label(), sortX + 6, y + 4,
+                hovered ? palette.text() : palette.textDim());
+    }
+
+    /** Last mouse position seen during render, used by the hover test in the search bar. */
+    private int lastMouseX = Integer.MIN_VALUE;
+    private int lastMouseY = Integer.MIN_VALUE;
+    private int searchSortX;
+    private int searchSortY;
+    private int searchSortW;
+    private int searchSortH;
+
+    private boolean mouseXIn(int left, int right) {
+        return lastMouseX >= left && lastMouseX <= right;
+    }
+
+    private boolean mouseYIn(int top, int bottom) {
+        return lastMouseY >= top && lastMouseY <= bottom;
     }
 
     private void drawModuleList(DrawContext context, Palette palette, int x, int right, int mouseX, int mouseY) {
@@ -511,9 +548,18 @@ public final class ClickGui extends Screen {
         }
         if (hovered) {
             tooltipTitle = module.name();
-            tooltipBody = module.description() == null || module.description().isEmpty()
+            StringBuilder body = new StringBuilder(module.description() == null || module.description().isEmpty()
                     ? "left-click toggle \u00B7 right-click menu"
-                    : module.description();
+                    : module.description());
+            String requirement = ModuleQuery.requirementLine(module, modules);
+            if (!requirement.isEmpty()) {
+                body.append("\n\u2022 ").append(requirement);
+            }
+            String reason = ModuleQuery.matchReason(module, search);
+            if (!reason.isEmpty()) {
+                body.append("\n\u2022 matched: ").append(reason);
+            }
+            tooltipBody = body.toString();
         }
     }
 
@@ -957,6 +1003,14 @@ public final class ClickGui extends Screen {
     private boolean handleModuleClick(double mouseX, double mouseY, int button) {
         int x = panelLeft + SIDEBAR_WIDTH + 10;
         int right = panelRight - 6;
+        // Sort control in the search bar: cycles the module ordering.
+        if (button == 0 && inRect(mouseX, mouseY, searchSortX, searchSortY, searchSortW, searchSortH)) {
+            sortOrder = sortOrder.next();
+            scroll = 0;
+            GuiSounds.click();
+            setStatus("sort: " + sortOrder.label());
+            return true;
+        }
         if (mouseX < x || mouseX > right || mouseY < listTop || mouseY > listBottom) {
             return false;
         }
@@ -1361,58 +1415,21 @@ public final class ClickGui extends Screen {
     }
 
     private List<Module> visibleModules() {
-        List<Module> result = new ArrayList<>();
-        String needle = search.toLowerCase(Locale.ROOT);
         FavoritesStore store = favoritesStore();
         List<String> recent = store == null ? List.of() : store.recent();
-        for (Module module : modules.all()) {
-            if (!needle.isEmpty()) {
-                // Search matches the name, the description and any setting name, so a user
-                // can find "AutoTotem" or the module that owns a "Health" setting.
-                if (!module.searchKey().contains(needle)
-                        && !module.description().toLowerCase(Locale.ROOT).contains(needle)
-                        && !module.category().displayName().toLowerCase(Locale.ROOT).contains(needle)
-                        && !hasMatchingSetting(module, needle)) {
-                    continue;
-                }
-            } else {
-                switch (page) {
-                    case FAVORITES -> {
-                        if (store == null || !store.isFavorite(module.name())) {
-                            continue;
-                        }
-                    }
-                    case RECENT -> {
-                        if (!recent.contains(module.name())) {
-                            continue;
-                        }
-                    }
-                    default -> {
-                        if (module.category() != selectedCategory) {
-                            continue;
-                        }
-                    }
-                }
-            }
-            result.add(module);
-        }
-        // On the Recent page, preserve most-recent-first ordering.
-        if (page == Page.RECENT && needle.isEmpty()) {
-            result.sort((a, b) -> Integer.compare(recent.indexOf(a.name()), recent.indexOf(b.name())));
+        java.util.function.Predicate<Module> pageFilter = switch (page) {
+            case FAVORITES -> module -> store != null && store.isFavorite(module.name());
+            case RECENT -> module -> recent.contains(module.name());
+            default -> module -> module.category() == selectedCategory;
+        };
+        // Search spans every category; the page filter only applies when the box is empty.
+        // The recent page keeps most-recent-first order unless the user asked for another sort.
+        List<Module> result = ModuleQuery.apply(modules.all(), search, pageFilter, sortOrder, recent);
+        if (page == Page.RECENT && sortOrder == ModuleQuery.SortOrder.DEFAULT && search.isBlank()) {
+            List<String> recents = recent;
+            result.sort((a, b) -> Integer.compare(recents.indexOf(a.name()), recents.indexOf(b.name())));
         }
         return result;
-    }
-
-    /** True when any visible setting of the module matches the search needle. */
-    private boolean hasMatchingSetting(Module module, String needle) {
-        for (SettingGroup group : module.groups()) {
-            for (Setting<?> setting : group.settings()) {
-                if (setting.name().toLowerCase(Locale.ROOT).contains(needle)) {
-                    return true;
-                }
-            }
-        }
-        return false;
     }
 
     private static boolean inRect(double mx, double my, int x, int y, int w, int h) {

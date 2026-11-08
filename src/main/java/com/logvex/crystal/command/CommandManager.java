@@ -18,6 +18,7 @@ import com.logvex.crystal.setting.StringSetting;
 import com.logvex.crystal.theme.ThemePreset;
 import com.logvex.crystal.theme.ThemeVariant;
 import com.logvex.crystal.util.ColorUtil;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import net.minecraft.client.MinecraftClient;
@@ -199,6 +200,8 @@ public final class CommandManager {
             case "waypoint", "wp" -> waypoint(args);
             case "baritone", "bari", "path" -> baritone(args);
             case "world", "worldinfo" -> world();
+            case "scan", "scanner" -> scan(args);
+            case "wi", "intel", "intelligence" -> worldIntelligence(args);
             case "entities", "entity" -> entities(args);
             case "browser", "entitybrowser" -> openEntityBrowser();
             case "notifications", "notifs" -> notifications(args);
@@ -244,10 +247,23 @@ public final class CommandManager {
             return;
         }
         module.toggle(client.modules());
+        recordUsage(module);
         client.notify(module.name() + (module.isEnabled() ? " enabled" : " disabled"),
                 module.isEnabled() ? NotificationLevel.SUCCESS : NotificationLevel.INFO);
         if (module.lastError() != null) {
             client.notify(module.lastError(), NotificationLevel.WARN);
+        }
+    }
+
+    /**
+     * Records that a module was used so it appears on the ClickGUI's Recent page. Shared by
+     * every command that toggles a module, so the recents list reflects command usage as well
+     * as GUI clicks. Silently does nothing when the store is unavailable (headless runs).
+     */
+    private void recordUsage(Module module) {
+        var store = client.favorites();
+        if (store != null && module != null) {
+            store.markUsed(module.name());
         }
     }
 
@@ -794,6 +810,284 @@ public final class CommandManager {
         for (String line : lines) {
             client.notify(line, NotificationLevel.INFO);
         }
+    }
+
+    /**
+     * Controls the world scanner. Every subcommand maps to a real module method: nothing here is
+     * a stub, and the scanner itself only ever reads loaded chunks.
+     */
+    private void scan(List<String> args) {
+        var module = client.modules().byClass(com.logvex.crystal.module.world.WorldScannerModule.class);
+        if (module == null) {
+            client.notify("WorldScanner module is unavailable", NotificationLevel.ERROR);
+            return;
+        }
+        if (!module.isEnabled()) {
+            module.enable(client.modules());
+            recordUsage(module);
+        }
+        String action = args.isEmpty() ? "status" : args.get(0).toLowerCase(Locale.ROOT);
+        switch (action) {
+            case "status" -> {
+                var snapshot = module.snapshot();
+                if (snapshot == null) {
+                    client.notify("Scanner not initialised", NotificationLevel.WARN);
+                    return;
+                }
+                client.notify("scan " + snapshot.state().label() + " " + Math.round(snapshot.progress() * 100) + "%",
+                        NotificationLevel.INFO);
+                client.notify("dimension " + snapshot.dimension() + " \u00b7 explored " + snapshot.exploredChunks()
+                        + " \u00b7 finds " + snapshot.discoveries(), NotificationLevel.INFO);
+                client.notify("flight " + snapshot.flightStatus() + " \u00b7 movement " + snapshot.movementStatus(),
+                        NotificationLevel.INFO);
+            }
+            case "start" -> module.start();
+            case "pause" -> module.pause();
+            case "resume" -> module.resume();
+            case "stop" -> module.stop();
+            case "reset" -> module.resetSession();
+            case "gui", "screen" -> {
+                if (ScreenGuard.fontsReady()) {
+                    MinecraftClient.getInstance().setScreen(new com.logvex.crystal.gui.ScanDashboardScreen(
+                            client.theme(), module));
+                }
+            }
+            case "export" -> {
+                module.saveDatabase();
+                client.notify("Saved scan database (" + module.database().sessions().size() + " sessions)",
+                        NotificationLevel.SUCCESS);
+            }
+            case "profile" -> {
+                if (args.size() < 2) {
+                    client.notify("Usage: ; scan profile <name>  |  ; scan profile save <name>",
+                            NotificationLevel.WARN);
+                    return;
+                }
+                if (args.get(1).equalsIgnoreCase("save") && args.size() >= 3) {
+                    module.saveProfile(args.get(2));
+                } else if (!module.applyProfile(args.get(1))) {
+                    client.notify("No scan profile named '" + args.get(1) + "'", NotificationLevel.WARN);
+                } else {
+                    client.notify("Applied scan profile '" + args.get(1) + "'", NotificationLevel.SUCCESS);
+                }
+            }
+            default -> client.notify("Usage: ; scan [start|pause|resume|stop|reset|status|gui|export|profile]",
+                    NotificationLevel.WARN);
+        }
+    }
+
+    /**
+     * Controls the world-intelligence layer: the discovery database, the autonomous exploration
+     * targets, natural-language queries and the dashboard. Every subcommand maps to a real method
+     * on the {@link com.logvex.crystal.scan.world.WorldIntelligence} layer; nothing here is a stub,
+     * and the layer only ever reads the client's own loaded chunks.
+     */
+    private void worldIntelligence(List<String> args) {
+        var module = client.modules().byClass(com.logvex.crystal.module.world.WorldScannerModule.class);
+        if (module == null) {
+            client.notify("WorldScanner module is unavailable", NotificationLevel.ERROR);
+            return;
+        }
+        if (!module.isEnabled()) {
+            module.enable(client.modules());
+            recordUsage(module);
+        }
+        var intelligence = module.intelligence();
+        if (intelligence == null) {
+            client.notify("World intelligence is off. Enable the WorldScanner module (WorldIntelligence setting).",
+                    NotificationLevel.WARN);
+            return;
+        }
+        String action = args.isEmpty() ? "status" : args.get(0).toLowerCase(Locale.ROOT);
+        switch (action) {
+            case "status" -> {
+                var db = intelligence.database();
+                client.notify("intelligence \u00b7 " + db.size() + " recorded \u00b7 "
+                        + db.discoveries(intelligence.dimension()).size() + " finds \u00b7 "
+                        + db.dimensions().size() + " dimension(s)", NotificationLevel.INFO);
+                client.notify("regions " + intelligence.regions().touchedRegions(intelligence.dimension())
+                        + " touched \u00b7 " + intelligence.regions().completeRegions(intelligence.dimension())
+                        + " complete \u00b7 baritone " + intelligence.baritone().statusLine(), NotificationLevel.INFO);
+                client.notify("ai " + intelligence.ai().backendDescription(), NotificationLevel.INFO);
+            }
+            case "gui", "screen", "open" -> {
+                if (ScreenGuard.fontsReady()) {
+                    MinecraftClient.getInstance().setScreen(new com.logvex.crystal.gui.WorldIntelligenceScreen(
+                            client.theme(), module));
+                }
+            }
+            case "find", "search" -> {
+                if (args.size() < 2) {
+                    client.notify("Usage: ; wi find <text>", NotificationLevel.WARN);
+                    return;
+                }
+                String needle = String.join(" ", args.subList(1, args.size()));
+                var results = intelligence.database().search(needle, null,
+                        com.logvex.crystal.scan.world.DiscoveryDatabase.SortOrder.RECENT, 0, 8);
+                if (results.isEmpty()) {
+                    client.notify("No observations matching '" + needle + "'", NotificationLevel.WARN);
+                    return;
+                }
+                client.notify(results.size() + " result(s) for '" + needle + "':", NotificationLevel.INFO);
+                for (var observation : results) {
+                    client.notify("  " + observation.summary() + " \u00b7 " + observation.evidenceLine(),
+                            NotificationLevel.INFO);
+                }
+            }
+            case "list", "recent" -> {
+                var recent = intelligence.database().recent(10);
+                if (recent.isEmpty()) {
+                    client.notify("No observations recorded yet", NotificationLevel.WARN);
+                    return;
+                }
+                client.notify("Recent observations:", NotificationLevel.INFO);
+                for (var observation : recent) {
+                    client.notify("  " + observation.summary() + " \u00b7 " + observation.evidenceLine(),
+                            NotificationLevel.INFO);
+                }
+            }
+            case "targets", "route" -> {
+                MinecraftClient mc = MinecraftClient.getInstance();
+                int fromX = mc != null && mc.player != null ? (int) mc.player.getX() : 0;
+                int fromZ = mc != null && mc.player != null ? (int) mc.player.getZ() : 0;
+                var targets = intelligence.buildTargets(fromX, fromZ, 8);
+                if (targets.isEmpty()) {
+                    client.notify("No exploration targets yet (no discoveries recorded)", NotificationLevel.WARN);
+                    return;
+                }
+                client.notify("Exploration targets:", NotificationLevel.INFO);
+                for (var target : targets) {
+                    client.notify("  " + target.centreBlockX() + ", " + target.centreBlockZ() + " \u00b7 "
+                            + target.count() + " chunk(s) \u00b7 " + target.reason(), NotificationLevel.INFO);
+                }
+            }
+            case "ask", "query" -> {
+                if (args.size() < 2) {
+                    client.notify("Usage: ; wi ask <question>", NotificationLevel.WARN);
+                    client.notify("Try: " + String.join(" | ",
+                            com.logvex.crystal.scan.world.WorldQuery.supportedQuestions()), NotificationLevel.INFO);
+                    return;
+                }
+                String question = String.join(" ", args.subList(1, args.size()));
+                var answer = intelligence.askLocal(question);
+                for (String line : wrapText(answer.text(), 200)) {
+                    client.notify(line, NotificationLevel.INFO);
+                }
+            }
+            case "confirm" -> {
+                if (args.size() < 3) {
+                    client.notify("Usage: ; wi confirm <chunkX> <chunkZ>", NotificationLevel.WARN);
+                    return;
+                }
+                setVerificationByChunk(intelligence, args, com.logvex.crystal.scan.world.VerificationStatus.CONFIRMED);
+            }
+            case "dismiss" -> {
+                if (args.size() < 3) {
+                    client.notify("Usage: ; wi dismiss <chunkX> <chunkZ>", NotificationLevel.WARN);
+                    return;
+                }
+                setVerificationByChunk(intelligence, args, com.logvex.crystal.scan.world.VerificationStatus.REJECTED);
+            }
+            case "delete", "remove" -> {
+                if (args.size() < 3) {
+                    client.notify("Usage: ; wi delete <chunkX> <chunkZ>", NotificationLevel.WARN);
+                    return;
+                }
+                Integer chunkX = parseInt(args.get(1));
+                Integer chunkZ = parseInt(args.get(2));
+                if (chunkX == null || chunkZ == null) {
+                    client.notify("Chunk coordinates must be integers", NotificationLevel.WARN);
+                    return;
+                }
+                String id = findObservationId(intelligence, chunkX, chunkZ);
+                if (id == null) {
+                    client.notify("No observation at chunk " + chunkX + "," + chunkZ, NotificationLevel.WARN);
+                    return;
+                }
+                intelligence.database().delete(id);
+                intelligence.save();
+                client.notify("Deleted observation " + id, NotificationLevel.SUCCESS);
+            }
+            case "export", "save" -> {
+                String error = intelligence.save();
+                client.notify(error == null ? "Saved world intelligence (" + intelligence.database().size()
+                        + " records)" : error, error == null ? NotificationLevel.SUCCESS : NotificationLevel.ERROR);
+            }
+            case "import", "load" -> {
+                intelligence.load();
+                client.notify("Loaded world intelligence (" + intelligence.database().size() + " records)",
+                        NotificationLevel.SUCCESS);
+            }
+            case "clear" -> {
+                intelligence.database().clear();
+                intelligence.save();
+                client.notify("Cleared all recorded observations", NotificationLevel.SUCCESS);
+            }
+            default -> client.notify("Usage: ; wi [status|gui|find <text>|list|targets|ask <question>|"
+                    + "confirm <cx> <cz>|dismiss <cx> <cz>|delete <cx> <cz>|export|import|clear]",
+                    NotificationLevel.WARN);
+        }
+    }
+
+    private void setVerificationByChunk(com.logvex.crystal.scan.world.WorldIntelligence intelligence,
+                                        List<String> args,
+                                        com.logvex.crystal.scan.world.VerificationStatus status) {
+        Integer chunkX = parseInt(args.get(1));
+        Integer chunkZ = parseInt(args.get(2));
+        if (chunkX == null || chunkZ == null) {
+            client.notify("Chunk coordinates must be integers", NotificationLevel.WARN);
+            return;
+        }
+        String id = findObservationId(intelligence, chunkX, chunkZ);
+        if (id == null) {
+            client.notify("No observation at chunk " + chunkX + "," + chunkZ, NotificationLevel.WARN);
+            return;
+        }
+        intelligence.database().setVerification(id, status);
+        intelligence.save();
+        client.notify("Marked " + id + " as " + status.label(), NotificationLevel.SUCCESS);
+    }
+
+    private static String findObservationId(com.logvex.crystal.scan.world.WorldIntelligence intelligence,
+                                            int chunkX, int chunkZ) {
+        for (var observation : intelligence.database().observations()) {
+            if (observation.chunkX() == chunkX && observation.chunkZ() == chunkZ) {
+                return observation.id();
+            }
+        }
+        return null;
+    }
+
+    private static Integer parseInt(String value) {
+        try {
+            return Integer.parseInt(value);
+        } catch (NumberFormatException e) {
+            return null;
+        }
+    }
+
+    private static List<String> wrapText(String text, int maxLength) {
+        List<String> lines = new ArrayList<>();
+        if (text == null) {
+            return lines;
+        }
+        for (String paragraph : text.split("\n")) {
+            StringBuilder current = new StringBuilder();
+            for (String word : paragraph.split(" ")) {
+                if (current.length() + word.length() + 1 > maxLength && current.length() > 0) {
+                    lines.add(current.toString());
+                    current = new StringBuilder();
+                }
+                if (current.length() > 0) {
+                    current.append(' ');
+                }
+                current.append(word);
+            }
+            if (current.length() > 0) {
+                lines.add(current.toString());
+            }
+        }
+        return lines;
     }
 
     /**
@@ -1911,6 +2205,7 @@ public final class CommandManager {
                 "; waypoint <add|remove|list|clear> [name] [x y z]",
                 "; baritone <status|gui|goto <x y z>|near <x y z> [r]|wp <name>|here|cancel|pause|resume|paused|set|settings>",
                 "; world | entities <list|count|search <text>> | browser",
+                "; wi <status|gui|find <text>|list|targets|ask <q>|confirm|dismiss|delete|export|import|clear>",
                 "; notifications <list|history|clear|sound|duration|scale|position|duplicates|level|test>",
                 "; context <on|off|list|add|remove|clear|cooldown>",
                 "; friend <add|remove|list> [name]",

@@ -1,7 +1,8 @@
 # LOGVEX CRYSTAL - Module Implementation Matrix
 
-> 70 registered modules (`ModuleRegistry.EXPECTED_MODULE_COUNT`, asserted by
-> `ModuleRegistryTest`). Generated from the source at commit `5da1ad7`.
+> 71 registered modules (`ModuleRegistry.EXPECTED_MODULE_COUNT`, asserted by
+> `ModuleRegistryTest`). Generated from the source at commit `5da1ad7`; count refreshed
+> in the client-intelligence pass.
 >
 > **Status key**
 > - **Verified** - real implementation wired into the tick/render path; pure logic has unit

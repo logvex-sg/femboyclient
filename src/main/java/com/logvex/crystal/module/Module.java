@@ -283,7 +283,14 @@ public abstract class Module {
         try {
             onEnable();
         } catch (Throwable t) {
+            // A module can acquire resources (listeners, workers, render hooks) before the
+            // throw. Unwind with onDisable so a failed enable cannot leak them, then report.
             enabled = false;
+            try {
+                onDisable();
+            } catch (Throwable cleanup) {
+                recordFailure("failed to clean up after a failed enable", cleanup);
+            }
             recordFailure("failed to enable", t);
             return false;
         }

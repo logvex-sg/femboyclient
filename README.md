@@ -94,8 +94,38 @@ All commands are local-only. Prefix `;` or `.crystal`.
 | `; waypoint <add\|remove\|list\|clear> [name] [x y z]` | Manage waypoints |
 | `; friend <add\|remove\|list> [name]` | Manage the friend list |
 | `; hud <element> <on\|off>` / `hudedit` / `gui` | HUD control |
+| `; scan <start\|pause\|resume\|stop\|reset\|status\|gui\|export\|profile>` | World scanner control |
 | `; save` / `load` / `list [category]` / `version` | Config & info |
 | `; assets [list\|reload]` | Report the asset pack, or clear the texture cache |
+
+## World scanner (local only)
+
+`; scan` drives an autonomous, local world scanner: it walks the client's own loaded
+chunks, classifies what it observes, and keeps a persistent map of the result. It is a real
+state machine, not a wrapper around a placeholder.
+
+- **States**: `IDLE → INITIALIZING → MAPPING/EXPLORING → ANALYZING → COMPLETED`, plus
+  `PAUSED` and `ERROR`. The HUD and dashboard show the live state.
+- **Sampling**: only chunks the client already has loaded are read; the scanner never loads
+  a chunk or bypasses server-side protections. Unloaded chunks are counted and retried later,
+  never recorded as observed.
+- **Flight**: when creative flight is available and permitted the scanner uses it, adopting an
+  existing flight and never switching off a flight the user started. Movement goes through
+  Baritone when it is present; otherwise the scanner still samples the loaded window around
+  the player.
+- **Classification**: a deterministic, offline classifier assigns each chunk a category
+  (natural, building, storage, farm, redstone, underground, abandoned, mob farm, mine, portal,
+  other) with a confidence score. Weak evidence is downgraded to `other` rather than guessed,
+  and a user correction always wins over later automatic classification.
+- **Performance**: classification runs off the client thread behind a bounded queue, the map
+  is indexed by dimension and chunk, and per-tick sampling is capped. Nothing blocks the game
+  thread.
+- **Safety**: only local observation. No covert collection of other players' coordinates or
+  inventories, no external transmission, no bypassing of access controls.
+
+Controls: `; scan start|pause|resume|stop|reset`, `; scan status`, `; scan gui` for the
+dashboard, `; scan export` to flush the session database, and
+`; scan profile <name>` / `; scan profile save <name>` for reusable configurations.
 
 ## ClickGUI
 
@@ -108,6 +138,11 @@ keybind, HUD element, appearance knob and config profile. Open it with `; gui` o
   right-click context menu (toggle, bind, favourite, open the category) and hover tooltips.
   Settings expand inline; sliders, dropdowns, keybind capture, colour pickers and toggles
   are all editable in place. Shift-click a setting to reset it to its default.
+* **Search + sort:** the search box matches a module's name, description, category or any
+  setting name, and spans every category while it holds text. The sort button next to it
+  cycles the ordering (default / name / category / enabled-first). Hovering a card explains
+  why it matched ("matched: setting: Health") and what it needs ("needs X", "conflicts
+  with Y").
 * **Appearance:** theme preset grid, accent colour pickers, opacity/gradient/glow/radius/
   scale/animation sliders, decorative + cat-cosmetic toggles, reduced motion, blur, custom
   cursor, GUI sounds, splash text, light/dark variant and the easter-egg toggle. Every
@@ -282,6 +317,7 @@ Written under `<game>/config/logvex-crystal/`:
 | `ai/reports.json` | Queued bug reports |
 | `ai/models/*.gguf` | Downloaded local models |
 | `profiles/*.json` | Named configuration profiles |
+| `scan-sessions.json` | World-scanner sessions, discoveries and scan profiles |
 
 All stores are schema-versioned, written atomically, skip malformed entries on load, and
 refuse a newer schema so a future version's data is never silently downgraded.
@@ -304,7 +340,7 @@ src/main/java/com/logvex/crystal/
   cosmetic/   paw-print particles and UI sounds, plus the optional player accessories
   command/    the ; command system
   social/     friend list
-  scan/       local chest counting + clustering (ChestLogger)
+  scan/       local chest counting + clustering, and the autonomous world scanner
   util/       maths, animation, waypoints
 src/test/java/  pure-logic unit tests (no Minecraft runtime needed)
 ```
