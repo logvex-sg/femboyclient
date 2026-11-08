@@ -249,4 +249,87 @@ class ModuleManagerTest {
         assertEquals(0, manager.resolveKeybindConflict(a, -1));
         assertTrue(a.keybind().isBound(), "clearing with an unbound key must not touch bindings");
     }
+
+    // ---------------------------------------------------- lifecycle cleanup
+
+    /** A module that acquires a resource on enable and releases it on disable. */
+    private static class ResourceModule extends StubModule {
+        boolean holding;
+        int acquisitions;
+
+        ResourceModule(String name) {
+            super(Category.MISC, name);
+        }
+
+        @Override
+        protected void onEnable() {
+            super.onEnable();
+            holding = true;
+            acquisitions++;
+        }
+
+        @Override
+        protected void onDisable() {
+            super.onDisable();
+            holding = false;
+        }
+    }
+
+    @Test
+    void disablingAModuleReleasesItsResources() {
+        ModuleManager manager = new ModuleManager();
+        ResourceModule module = new ResourceModule("Holder");
+        manager.register(module);
+        module.enable(manager);
+        assertTrue(module.holding, "enable acquires the resource");
+        module.disable();
+        assertFalse(module.holding, "disable must release every resource the module held");
+        assertEquals(1, module.disables);
+    }
+
+    @Test
+    void aFailedEnableUnwindsInsteadOfLeaking() {
+        ModuleManager manager = new ModuleManager();
+        ResourceModule module = new ResourceModule("Leaky") {
+            @Override
+            protected void onEnable() {
+                super.onEnable();
+                throw new IllegalStateException("boom");
+            }
+        };
+        manager.register(module);
+        assertFalse(module.enable(manager), "a throwing onEnable must report failure");
+        assertFalse(module.holding, "resources acquired before the throw must be released");
+        assertFalse(module.isEnabled(), "a failed enable leaves the module disabled");
+        assertTrue(module.errorCount() >= 1, "the failure is recorded");
+    }
+
+    @Test
+    void disconnectRunsCleanupForEveryEnabledModule() {
+        ModuleManager manager = new ModuleManager();
+        ResourceModule a = new ResourceModule("A");
+        ResourceModule b = new ResourceModule("B");
+        manager.register(a);
+        manager.register(b);
+        a.enable(manager);
+        b.enable(manager);
+        manager.onDisconnect();
+        assertFalse(a.holding);
+        assertFalse(b.holding);
+    }
+
+    @Test
+    void shutdownRunsForEveryModuleEvenWhenDisabled() {
+        ModuleManager manager = new ModuleManager();
+        final int[] shutdowns = {0};
+        StubModule module = new StubModule(Category.MISC, "Worker") {
+            @Override
+            protected void onShutdown() {
+                shutdowns[0]++;
+            }
+        };
+        manager.register(module);
+        manager.shutdownAll();
+        assertEquals(1, shutdowns[0], "shutdown must reach a module that was never enabled");
+    }
 }

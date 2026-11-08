@@ -138,6 +138,11 @@ keybind, HUD element, appearance knob and config profile. Open it with `; gui` o
   right-click context menu (toggle, bind, favourite, open the category) and hover tooltips.
   Settings expand inline; sliders, dropdowns, keybind capture, colour pickers and toggles
   are all editable in place. Shift-click a setting to reset it to its default.
+* **Search + sort:** the search box matches a module's name, description, category or any
+  setting name, and spans every category while it holds text. The sort button next to it
+  cycles the ordering (default / name / category / enabled-first). Hovering a card explains
+  why it matched ("matched: setting: Health") and what it needs ("needs X", "conflicts
+  with Y").
 * **Appearance:** theme preset grid, accent colour pickers, opacity/gradient/glow/radius/
   scale/animation sliders, decorative + cat-cosmetic toggles, reduced motion, blur, custom
   cursor, GUI sounds, splash text, light/dark variant and the easter-egg toggle. Every
