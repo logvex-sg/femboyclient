@@ -13,6 +13,9 @@
     "client": ["com.logvex.crystal.client.CrystalClient"]
   },
   "mixins": ["logvex-crystal.mixins.json"],
+  "custom": {
+    "logvex:edition": "${edition}"
+  },
   "depends": {
     "fabricloader": ">=${loader_version}",
     "minecraft": "${minecraft_version}",

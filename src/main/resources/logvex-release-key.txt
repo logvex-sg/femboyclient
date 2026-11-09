@@ -1,0 +1,5 @@
+# LOGVEX CRYSTAL release signing key (Ed25519, X.509 SubjectPublicKeyInfo, base64)
+# DEVELOPMENT KEY: generated during pipeline bring-up. Replace it with the project's
+# release key before publishing: python3 build-system/release_manifest.py public-key
+#   --signing-key <your key.pem> --out src/main/resources/logvex-release-key.txt
+MCowBQYDK2VwAyEAxLED1jG0b/cjyyc2cYBx6zOH6gRPgIcFPHDqIIyem20=

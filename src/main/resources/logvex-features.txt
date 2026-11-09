@@ -1,0 +1,5 @@
+# LOGVEX CRYSTAL optional feature manifest.
+#
+# One fully-qualified ClientFeature class name per line. The standard edition ships this file
+# empty (no optional features); the Overseer edition replaces it with one that names its
+# administration feature. See build.gradle and docs/BUILD_FACTORY.md.

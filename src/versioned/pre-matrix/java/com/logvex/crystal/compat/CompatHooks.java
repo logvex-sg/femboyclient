@@ -69,6 +69,13 @@ final class CompatHooks {
                 .register(context -> handler.accept(context));
     }
 
+    static void drawTexture(net.minecraft.client.gui.DrawContext context, Identifier texture,
+                            int x, int y, float u, float v, int width, int height, int texWidth, int texHeight) {
+        // 1.21.1 .. 1.21.4: the texture overload takes a bare Identifier and there is no
+        // RenderPipelines class yet.
+        context.drawTexture(texture, x, y, u, v, width, height, texWidth, texHeight);
+    }
+
     static MatrixStack worldMatrices(Object context) {
         return ((net.fabricmc.fabric.api.client.rendering.v1.WorldRenderContext) context).matrixStack();
     }

@@ -37,6 +37,31 @@ def mcRow = gradle.ext.mcRow
 def remap = mcRow.loomPlugin == 'fabric-loom'
 
 // ---------------------------------------------------------------------------------------
+// Edition selection (Phase 11). One source tree produces two genuinely different artifacts:
+//
+//   standard : the base client. No administration code.
+//   overseer : the base client plus src/overseer (the RemoteController feature, its module,
+//              HUD element and dashboard) and an Overseer feature manifest.
+//
+// The edition is selected with -Pvariant=<standard|overseer>. It is not a rename: the Overseer
+// source directory and manifest are only on the compile path for the overseer edition, so the
+// standard jar contains no administration classes and the two can be told apart by their
+// contents (see the validateArtifact task).
+// ---------------------------------------------------------------------------------------
+def edition = (project.findProperty('variant') ?: 'standard').toString().toLowerCase()
+if (!(edition in ['standard', 'overseer'])) {
+    throw new GradleException("Unknown edition '${edition}'. Use -Pvariant=standard or -Pvariant=overseer.")
+}
+ext.edition = edition
+if (edition == 'overseer') {
+    sourceSets.main.java.srcDir 'src/overseer/java'
+    // Overseer resources must win the duplicate logvex-features.txt, so its directory comes first
+    // and processResources excludes later duplicates (see below).
+    sourceSets.main.resources.srcDirs = ['src/overseer/resources', 'src/main/resources']
+}
+
+
+// ---------------------------------------------------------------------------------------
 // Version-specific source. A handful of API changes cannot be papered over with a call that
 // exists on both sides (the types themselves were renamed), so those call sites go through a
 // small compat facade whose implementation is compiled from a per-band source directory.
@@ -93,7 +118,9 @@ def inventoryPrimary = inventory.primary
 group = project.maven_group
 
 base {
-    archivesName = project.archives_base_name
+    archivesName = edition == 'overseer'
+            ? "${project.archives_base_name}-overseer"
+            : project.archives_base_name
 }
 
 version = "${mcRow.minecraft}-${project.mod_version ?: 'dev'}"
@@ -150,12 +177,19 @@ processResources {
     inputs.property 'version', project.version
     inputs.property 'loader_version', mcRow.loader
     inputs.property 'minecraft_version', mcRow.minecraft
+    inputs.property 'edition', edition
+
+    // The Overseer edition ships its own logvex-features.txt; the standard one is empty. Because
+    // src/overseer/resources is listed first, the first occurrence wins and later duplicates of
+    // that single path are dropped. Everything else from both roots is kept.
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
 
     filesMatching('fabric.mod.json') {
         expand(
                 'version': project.version,
                 'loader_version': mcRow.loader,
-                'minecraft_version': mcRow.minecraft
+                'minecraft_version': mcRow.minecraft,
+                'edition': edition
         )
     }
 }
@@ -224,3 +258,203 @@ tasks.matching { it.name == 'check' }.configureEach {
         dependsOn 'verifyVersionMetadata'
     }
 }
+
+// ---------------------------------------------------------------------------------------
+// Phase 11 build factory.
+//
+// The edition is a property of the whole Gradle invocation (-Pvariant=...), because it changes
+// the compile path. So buildStandard / buildOverseer / buildVersion re-invoke the wrapper with
+// the right properties rather than trying to switch editions mid-build. assembleEdition is the
+// inner task they all run: it assembles, validates the artifact's contents, writes build
+// metadata and copies the result into a predictable dist/<minecraft>/<edition>/ directory.
+// ---------------------------------------------------------------------------------------
+
+def distDir = layout.buildDirectory.dir("dist").get().asFile
+def supportedVersions = {
+    new groovy.json.JsonSlurper().parse(file('build-system/version-registry.json'))
+            .summary.supported
+}
+
+// Where the edition's assembled jar lives, whichever Loom task produced it.
+def assembledJar = {
+    def task = remap ? tasks.named('remapJar') : tasks.named('jar')
+    task.get().archiveFile.get().asFile
+}
+
+tasks.register('assembleEdition') {
+    group = 'logvex'
+    description = 'Assemble, validate and stage the current (-Pvariant) edition for -PmcVersion.'
+    dependsOn remap ? 'remapJar' : 'jar'
+    doLast {
+        def jar = assembledJar()
+        if (!jar.exists()) {
+            throw new GradleException("Expected artifact was not produced: ${jar}")
+        }
+
+        def entries = new java.util.zip.ZipFile(jar).withCloseable { zip ->
+            zip.entries().collect { it.name } as Set
+        }
+        def manifestLines = new java.util.zip.ZipFile(jar).withCloseable { zip ->
+            def entry = zip.getEntry('logvex-features.txt')
+            if (entry == null) {
+                return []
+            }
+            zip.getInputStream(entry).withCloseable { input ->
+                input.readLines().collect { it.trim() }.findAll { it && !it.startsWith('#') }
+            }
+        }
+
+        def overseerClass = 'com/logvex/crystal/overseer/OverseerFeature.class'
+        if (edition == 'overseer') {
+            if (!entries.contains(overseerClass)) {
+                throw new GradleException("Overseer artifact is missing ${overseerClass}")
+            }
+            if (!manifestLines.contains('com.logvex.crystal.overseer.OverseerFeature')) {
+                throw new GradleException("Overseer manifest does not name its feature: ${manifestLines}")
+            }
+        } else {
+            if (entries.contains(overseerClass)) {
+                throw new GradleException("Standard artifact must not contain ${overseerClass}")
+            }
+            if (!manifestLines.isEmpty()) {
+                throw new GradleException("Standard manifest must be empty, found: ${manifestLines}")
+            }
+        }
+
+        def digest = java.security.MessageDigest.getInstance('SHA-256')
+        def sha256 = digest.digest(jar.bytes).encodeHex().toString()
+
+        def outDir = new File(distDir, "${mcRow.minecraft}/${edition}")
+        outDir.mkdirs()
+        def target = new File(outDir, jar.name)
+        target.bytes = jar.bytes
+
+        def metadata = [
+                edition          : edition,
+                clientVersion    : project.mod_version ?: 'dev',
+                minecraftVersion : mcRow.minecraft,
+                adapter          : compatBand,
+                javaRequirement  : mcRow.java,
+                loaderRequirement: ">=${mcRow.loader}",
+                fabricApi        : mcRow.fabricApi,
+                artifact         : target.name,
+                size             : target.length(),
+                sha256           : sha256,
+                features         : manifestLines,
+        ]
+        new File(outDir, 'build-metadata.json').text =
+                groovy.json.JsonOutput.prettyPrint(groovy.json.JsonOutput.toJson(metadata)) + '\n'
+        logger.lifecycle("logvex: staged ${edition} ${mcRow.minecraft} -> ${target} (sha256 ${sha256})")
+    }
+}
+
+def wrapperScript = { new File(rootDir, org.gradle.internal.os.OperatingSystem.current().isWindows() ? 'gradlew.bat' : 'gradlew') }
+
+def editionBuilder = { String taskName, String targetEdition, boolean useGivenVersion ->
+    tasks.register(taskName, Exec) {
+        group = 'logvex'
+        description = "Build the ${targetEdition} edition (${useGivenVersion ? '-PminecraftVersion' : 'default version'})."
+        def v = useGivenVersion
+                ? (project.findProperty('minecraftVersion') ?: inventoryPrimary)
+                : mcRow.minecraft
+        commandLine wrapperScript().absolutePath, '--console=plain', 'assembleEdition',
+                "-Pvariant=${targetEdition}", "-PmcVersion=${v}"
+    }
+}
+
+editionBuilder('buildStandard', 'standard', false)
+editionBuilder('buildOverseer', 'overseer', false)
+
+tasks.register('buildVersion', Exec) {
+    group = 'logvex'
+    description = 'Build one edition for -PminecraftVersion=<x> (-Pvariant selects the edition).'
+    def v = project.findProperty('minecraftVersion') ?: inventoryPrimary
+    commandLine wrapperScript().absolutePath, '--console=plain', 'assembleEdition',
+            "-PmcVersion=${v}", "-Pvariant=${edition}"
+}
+
+tasks.register('buildAll') {
+    group = 'logvex'
+    description = 'Build both editions for the default Minecraft version.'
+    dependsOn 'buildStandard', 'buildOverseer'
+}
+
+// The adapter-leak guard as a Gradle task, so CI and local builds run the same rule.
+tasks.register('adapterGuard', Exec) {
+    group = 'logvex'
+    description = 'Fail if shared code references a version-specific symbol.'
+    commandLine 'python3', 'build-system/check_adapter_leaks.py'
+}
+
+tasks.register('checkVersionRegistry', Exec) {
+    group = 'logvex'
+    description = 'Fail if build-system/version-registry.json is stale.'
+    commandLine 'python3', 'build-system/version_registry.py', '--check'
+}
+
+tasks.register('checkSbom', Exec) {
+    group = 'logvex'
+    description = 'Fail if docs/SBOM.md is stale against the resolved dependency versions.'
+    commandLine 'python3', 'build-system/generate_sbom.py', '--check'
+}
+
+// Sign the staged artifacts for one Minecraft version, producing a signed manifest per edition.
+// The private key is supplied via -PsigningKey=<path> and never lives in the repository; without it
+// this task fails loudly rather than producing an unsigned release. See docs/RELEASE_SIGNING.md.
+tasks.register('signRelease') {
+    group = 'logvex'
+    description = 'Generate and sign release manifests for the staged editions (-PsigningKey=...).'
+    def mc = findProperty('mcVersion') ?: inventory.primary
+    def channel = findProperty('channel') ?: 'stable'
+    def protocol = (findProperty('protocolVersion') ?: '1').toString()
+    def signingKey = findProperty('signingKey')
+    def outDir = file("build/release/${mc}")
+    def execOps = services.get(org.gradle.process.ExecOperations)
+    doLast {
+        if (!signingKey) {
+            throw new GradleException('signRelease requires -PsigningKey=<path to Ed25519 PEM>')
+        }
+        outDir.mkdirs()
+        ['standard', 'overseer'].each { ed ->
+            def dist = file("build/dist/${mc}/${ed}")
+            if (!dist.isDirectory()) {
+                throw new GradleException("no staged ${ed} artifact for ${mc}; run buildAll first")
+            }
+            execOps.exec {
+                commandLine 'python3', 'build-system/release_manifest.py', 'generate',
+                        '--dist', dist.absolutePath,
+                        '--channel', channel,
+                        '--protocol-version', protocol,
+                        '--signing-key', signingKey,
+                        '--out', outDir.absolutePath
+            }
+        }
+        logger.lifecycle("logvex: signed ${channel} release manifests for ${mc} -> ${outDir}")
+    }
+}
+
+// Full verification: registry/guard checks, the test suite, and a Standard + Overseer build for
+// every version the registry marks supported. This is the gate the release pipeline calls.
+def perVersionVerifyTasks = []
+supportedVersions().each { v ->
+    ['standard', 'overseer'].each { ed ->
+        def t = tasks.register("verify_${v.replace('.', '_')}_${ed}", Exec) {
+            group = 'logvex'
+            description = "Verify the ${ed} edition builds for Minecraft ${v}."
+            commandLine wrapperScript().absolutePath, '--console=plain', 'assembleEdition',
+                    "-PmcVersion=${v}", "-Pvariant=${ed}"
+        }
+        perVersionVerifyTasks << t
+    }
+}
+
+tasks.register('verifyAll') {
+    group = 'logvex'
+    description = 'Run guards, tests and both editions across every supported Minecraft version.'
+    dependsOn 'adapterGuard', 'checkVersionRegistry', 'checkSbom', 'test'
+    dependsOn perVersionVerifyTasks
+    doLast {
+        logger.lifecycle("logvex: verifyAll covered supported versions ${supportedVersions()}")
+    }
+}
+

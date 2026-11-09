@@ -72,6 +72,12 @@ final class CompatHooks {
                 .register(context -> handler.accept(context));
     }
 
+    static void drawTexture(net.minecraft.client.gui.DrawContext context, Identifier texture,
+                            int x, int y, float u, float v, int width, int height, int texWidth, int texHeight) {
+        context.drawTexture(net.minecraft.client.gl.RenderPipelines.GUI_TEXTURED, texture,
+                x, y, u, v, width, height, texWidth, texHeight);
+    }
+
     static MatrixStack worldMatrices(Object context) {
         return ((net.fabricmc.fabric.api.client.rendering.v1.world.WorldRenderContext) context).matrices();
     }

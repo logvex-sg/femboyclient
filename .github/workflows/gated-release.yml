@@ -1,0 +1,101 @@
+name: Gated release
+
+# Produces a signed release only from a tag, and only after the same validation gate a PR passes.
+# The signing key is a repository secret and is never printed; the public key is committed, so a
+# user can verify any release against the key that shipped with their client.
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 25
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '25'
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install build-system dependencies
+        run: pip install cryptography
+
+      - name: Cache Gradle
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ runner.os }}-${{ hashFiles('**/*.gradle', 'gradle/libs.versions.toml', 'build-system/versions.json') }}
+
+      - name: Make the wrapper executable
+        run: chmod +x ./gradlew
+
+      - name: Verify every guard, test and build
+        run: ./gradlew --console=plain verifyAll
+
+      - name: Assemble both editions for the primary version
+        run: ./gradlew --console=plain buildAll
+
+      - name: Write the release signing key
+        env:
+          RELEASE_SIGNING_KEY: ${{ secrets.LOGVEX_RELEASE_SIGNING_KEY }}
+        run: |
+          if [ -z "$RELEASE_SIGNING_KEY" ]; then
+            echo "::error::LOGVEX_RELEASE_SIGNING_KEY secret is not set; refusing to release unsigned"
+            exit 1
+          fi
+          umask 077
+          printf '%s' "$RELEASE_SIGNING_KEY" > "$RUNNER_TEMP/logvex-release-key.pem"
+
+      - name: Sign the staged artifacts
+        run: |
+          ./gradlew --console=plain signRelease \
+            -PsigningKey="$RUNNER_TEMP/logvex-release-key.pem"
+
+      - name: Verify each manifest against its artifact
+        run: |
+          set -euo pipefail
+          for manifest in build/release/*/*.json; do
+            dir=$(dirname "$manifest")
+            base=$(basename "$manifest")
+            edition=${base%%-*}
+            mc=$(echo "$base" | cut -d- -f2)
+            artifact="build/dist/$mc/$edition/$(python3 -c "import json,sys; print(json.load(open('$manifest'))['artifact'])")"
+            python3 build-system/release_manifest.py verify \
+              --manifest "$manifest" \
+              --artifact "$artifact" \
+              --public-key "$dir/release-public-key.txt"
+          done
+
+      - name: Collect release assets
+        run: |
+          mkdir -p release-assets
+          cp build/dist/*/*/*.jar release-assets/
+          cp build/dist/*/*/build-metadata.json release-assets/ || true
+          cp build/release/*/*.json release-assets/
+          cp build/release/*/release-public-key.txt release-assets/
+          (cd release-assets && sha256sum *.jar > SHA256SUMS)
+
+      - name: Publish the GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release-assets/*
+          generate_release_notes: true
+          fail_on_unmatched_files: true
+
+      - name: Shred the key
+        if: always()
+        run: rm -f "$RUNNER_TEMP/logvex-release-key.pem"

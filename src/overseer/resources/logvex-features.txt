@@ -1,0 +1,5 @@
+# LOGVEX CRYSTAL OVERSEER optional feature manifest.
+#
+# The Overseer edition names its administration feature here. The core reads this file at
+# startup and instantiates whatever it lists; it never imports the class itself.
+com.logvex.crystal.overseer.OverseerFeature

@@ -2,7 +2,6 @@ package com.logvex.crystal.assets;
 
 import com.logvex.crystal.render.RenderUtil;
 import net.minecraft.client.gui.DrawContext;
-import net.minecraft.client.gl.RenderPipelines;
 import net.minecraft.util.Identifier;
 
 /**
@@ -25,7 +24,7 @@ public final class Assets {
         if (texture == null) {
             return;
         }
-        context.drawTexture(RenderPipelines.GUI_TEXTURED, texture, x, y, 0f, 0f, w, h, w, h);
+        com.logvex.crystal.compat.Compat.drawTexture(context, texture, x, y, 0f, 0f, w, h, w, h);
     }
 
     /** Draws an image asset at its native size. */
@@ -44,7 +43,7 @@ public final class Assets {
             return false;
         }
         int half = size / 2;
-        context.drawTexture(RenderPipelines.GUI_TEXTURED, texture, cx - half, cy - half,
+        com.logvex.crystal.compat.Compat.drawTexture(context, texture, cx - half, cy - half,
                 0f, 0f, size, size, size, size);
         return true;
     }

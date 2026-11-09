@@ -1,6 +1,6 @@
 # LOGVEX CRYSTAL — Release Readiness
 
-> Verified against the actual source tree at commit `5da1ad7` (branch
+> Verified against the actual source tree at commit `8259b17` (branch
 > `feat/femboy-product-depth`) with a real `./gradlew build` on a JDK 25 build JVM / Java 21
 > mod toolchain. No result below is copied from an earlier plan; each claim names the file or
 > test it rests on.
@@ -10,14 +10,17 @@
 | Check | Command | Result |
 | --- | --- | --- |
 | Full build | `JAVA_HOME=~/.local/logvex-jdk-25 ./gradlew build` | **BUILD SUCCESSFUL** |
-| Tests | parse `build/test-results/test/*.xml` | **637 tests, 0 failures, 0 errors, 0 skipped, 83 classes** |
-| Main classes | `find src/main/java -name '*.java' \| wc -l` | 325 |
-| Test classes | `find src/test/java -name '*.java' \| wc -l` | 83 |
+| Tests | parse `build/test-results/test/*.xml` | **752 tests, 0 failures, 0 errors, 0 skipped, 101 classes** |
+| Main classes | `find src/main/java -name '*.java' \| wc -l` | 403 |
+| Test classes | `find src/test/java -name '*.java' \| wc -l` | 102 |
 | Registered modules | `ModuleRegistry.EXPECTED_MODULE_COUNT` | 70 (asserted by `ModuleRegistryTest`) |
-| Artifacts | `build/libs/` | `logvex-crystal-1.21.11-1.0.0.jar` (+ `-sources.jar`) |
+| Standard artifact | `build/dist/1.21.11/standard/` | `logvex-crystal-1.21.11-1.0.0.jar` |
+| Overseer artifact | `build/dist/1.21.11/overseer/` | `logvex-crystal-overseer-1.21.11-1.0.0.jar` |
+| Guards | `./gradlew adapterGuard checkInventory checkManifest checkVersionRegistry checkSbom` | **BUILD SUCCESSFUL** |
+| Multi-version build | `./gradlew verifyAll` | **BUILD SUCCESSFUL** (standard + overseer for 1.21.9 / 1.21.10 / 1.21.11) |
 
 Toolchain (from `gradle.properties` / `fabric.mod.json`): Minecraft 1.21.11, Yarn
-`1.21.11+build.6`, Fabric Loader 0.19.5, Fabric API `0.141.6+1.21.11`, Loom 1.18.4, Java 21
+`1.21.11+build.6`, Fabric Loader 0.20.1, Fabric API `0.141.6+1.21.11`, Loom 1.18.4, Java 21
 target. Mod id `logvex-crystal`, package `com.logvex.crystal`.
 
 ## 1. Status key
@@ -130,12 +133,31 @@ See `docs/ai-assistant.md` for the full design. Off by default; every part works
 | No arbitrary command execution from config | **Verified** | Baritone command strings are fixed literals, never user input; import validation bounds sizes/lists/numbers | — |
 | Config recovery (corrupt/incomplete files, migration, defaults) | **Verified** | `ConfigIo`; `ConfigIoTest` | — |
 
+### 2.10 Product depth: editions, compatibility, signed releases
+
+See `docs/BUILD_FACTORY.md`, `docs/UNIVERSAL_COMPATIBILITY.md`, `docs/RELEASE_SIGNING.md`,
+`docs/DEPENDENCY_AUDIT.md`.
+
+| Feature | Status | Evidence / reason | Next action |
+| --- | --- | --- | --- |
+| Dual-edition build factory (standard / overseer) | **Verified** | `assembleEdition` + `processOverseerResources`; genuine separation confirmed (standard jar has no `overseer/*` classes, overseer jar does) | — |
+| Build factory across every supported version | **Verified** | `verifyAll` builds both editions for 1.21.9 / 1.21.10 / 1.21.11 | live-client boot per version |
+| Universal version registry + guards | **Verified** | `build-system/version-registry.json`, `check_adapter_leaks.py` + `AdapterLeakGuardTest` | — |
+| Release manifest (strict parse + canonical signed payload) | **Verified** | `release/ReleaseManifest`; `ReleaseManifestTest` (11 cases) | — |
+| Ed25519 signature verification | **Verified** | `release/SignatureVerifier`; `ReleaseKeyResourceTest`; signed both editions and re-verified from the exact bytes | rotate the dev key for the real release |
+| Artifact identity verification | **Verified** | `release/ArtifactVerifier`; `ArtifactVerifierTest` (10 cases) | — |
+| Release catalogue (version / channel / protocol / edition) | **Verified** | `release/ReleaseCatalog`; `ReleaseCatalogTest` (7 cases) | — |
+| Update install with backup + rollback | **Verified** (logic) | `release/UpdateInstaller` | live in-place update on a real mods dir |
+| Fleet-update model (per-instance decisions) | **Verified** | `release/FleetUpdateModel`; `FleetUpdateModelTest` (5 cases); wired into `OverseerDashboardScreen` | live fleet confirmation |
+| Signing pipeline + Gradle task | **Verified** | `build-system/release_manifest.py`; `./gradlew signRelease -PsigningKey=...` wrote and verified both manifests | — |
+| SBOM + dependency audit | **Verified** | `docs/SBOM.md` via `generate_sbom.py`; `./gradlew checkSbom` | — |
+| CI: PR validation + gated release | **Verified** (config) | `.github/workflows/pr-validation.yml`, `.github/workflows/gated-release.yml` | first CI run on the PR |
+
 ## 3. Explicitly unsupported or not implemented
 
 | Item | Status | Reason | Next action |
 | --- | --- | --- | --- |
 | Anti-cheat bypass / server-rule evasion | **Unsupported (by policy)** | Out of scope by design; the client does not conceal automation or defeat server administration. | none — intentional |
-| CI workflow enforcing the build | **Not implemented** | Reproducible locally; no `.github/workflows`. | optional: add a JDK 25 `./gradlew build` workflow |
 | Publishable `-sources.jar` for a closed-source release | **Partial** | `withSourcesJar()` runs unconditionally. | gate behind a release flag when packaging a closed build |
 
 ## 4. Remaining manual validation matrix
@@ -154,7 +176,7 @@ they cannot run in the pure-logic test source set, which Loom gives no Minecraft
 
 ## 5. Bottom line
 
-The client **builds cleanly and passes its entire automated suite (637 tests, 0 failures)**.
+The client **builds cleanly and passes its entire automated suite (752 tests, 0 failures)**.
 Every registered module has a real implementation; there are no placeholders, no fabricated
 results and no invented APIs. What remains is honest runtime validation against a live game,
 enumerated in §4 and in `docs/baritone-integration.md` §6.1 — not missing code.

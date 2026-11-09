@@ -1,0 +1,181 @@
+#!/usr/bin/env python3
+"""Generate the LOGVEX CRYSTAL software bill of materials.
+
+The SBOM is derived from the two files that actually decide what the build resolves —
+``build-system/versions.json`` (the Minecraft / mapping / Fabric-API matrix) and
+``gradle/libs.versions.toml`` (the test-tooling versions) — plus a small table of licence facts
+that are recorded here because they are stable and not derivable from a coordinate string.
+
+Nothing here contacts the network. The point is that a reviewer can see, in one file, every
+dependency the client can link, its version, its licence and its role, and can regenerate that file
+deterministically.
+
+Usage:
+  python3 build-system/generate_sbom.py            # write docs/SBOM.md
+  python3 build-system/generate_sbom.py --check    # fail if docs/SBOM.md is stale
+"""
+from __future__ import annotations
+
+import argparse
+import json
+import pathlib
+import re
+import sys
+
+ROOT = pathlib.Path(__file__).resolve().parent.parent
+OUTPUT = ROOT / "docs" / "SBOM.md"
+
+# Licences of the components the build links. Recorded explicitly rather than guessed: an SBOM that
+# invents a licence is worse than no SBOM. Anything not listed here is reported as "unknown" and
+# must be resolved before release.
+LICENCES = {
+    "com.mojang:minecraft": "Mojang Minecraft EULA / proprietary (not redistributed)",
+    "net.fabricmc:fabric-loader": "Apache-2.0",
+    "net.fabricmc.fabric-api:fabric-api": "Apache-2.0",
+    "net.fabricmc:yarn": "CC0-1.0",
+    "org.junit:junit-bom": "EPL-2.0",
+    "org.junit.jupiter:junit-jupiter": "EPL-2.0",
+    "org.junit.platform:junit-platform-launcher": "EPL-2.0",
+    "com.google.code.gson:gson": "Apache-2.0",
+}
+
+# How each component reaches the shipped jar.
+ROLES = {
+    "com.mojang:minecraft": "provided",
+    "net.fabricmc:fabric-loader": "provided",
+    "net.fabricmc.fabric-api:fabric-api": "provided",
+    "net.fabricmc:yarn": "build-only (mappings)",
+    "org.junit:junit-bom": "test-only",
+    "org.junit.jupiter:junit-jupiter": "test-only",
+    "org.junit.platform:junit-platform-launcher": "test-only",
+    "com.google.code.gson:gson": "provided (test-only direct dependency)",
+}
+
+
+def load_versions() -> dict:
+    return json.loads((ROOT / "build-system" / "versions.json").read_text())
+
+
+def load_catalog() -> dict:
+    """A minimal TOML reader for the version catalog's [versions] and [libraries] tables."""
+    text = (ROOT / "gradle" / "libs.versions.toml").read_text()
+    sections: dict[str, dict[str, str]] = {}
+    current = None
+    for line in text.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("[") and stripped.endswith("]"):
+            current = stripped[1:-1]
+            sections.setdefault(current, {})
+        elif current and "=" in stripped and not stripped.startswith("#"):
+            key, _, value = stripped.partition("=")
+            sections[current][key.strip()] = value.strip().strip('"')
+    return sections
+
+
+def fabric_api_coordinates(versions: dict) -> list[tuple[str, str]]:
+    seen = {}
+    for row in versions["versions"]:
+        seen.setdefault(row["fabricApi"], row["minecraft"])
+    return sorted(seen.items())
+
+
+def component_rows(versions: dict, catalog: dict) -> list[tuple[str, str, str, str]]:
+    """(coordinate, version, role, licence) for every resolvable component."""
+    rows: list[tuple[str, str, str, str]] = []
+
+    rows.append(("com.mojang:minecraft", versions["primary"], "provided",
+                 LICENCES["com.mojang:minecraft"]))
+    rows.append(("net.fabricmc:fabric-loader", versions["loaderLatest"], "provided",
+                 LICENCES["net.fabricmc:fabric-loader"]))
+    rows.append(("net.fabricmc.fabric-api:fabric-api", "per-version (see matrix)", "provided",
+                 LICENCES["net.fabricmc.fabric-api:fabric-api"]))
+    yarn = next(r for r in versions["versions"] if r["mappingsScheme"] == "yarn")
+    yarn_version = ":".join(yarn["mappings"].split(":")[2:4])
+    rows.append(("net.fabricmc:yarn", yarn_version + " (build)",
+                 "build-only (mappings)", LICENCES["net.fabricmc:yarn"]))
+
+    test_versions = catalog.get("versions", {})
+    for key, coordinate in {
+        "junit-bom": "org.junit:junit-bom",
+        "junit-jupiter": "org.junit.jupiter:junit-jupiter",
+        "junit-platform-launcher": "org.junit.platform:junit-platform-launcher",
+        "gson": "com.google.code.gson:gson",
+    }.items():
+        version_key = "junit" if key.startswith("junit") else key
+        rows.append((coordinate, test_versions.get(version_key, "unknown"),
+                     ROLES[coordinate], LICENCES[coordinate]))
+    return rows
+
+
+def render() -> str:
+    versions = load_versions()
+    catalog = load_catalog()
+    rows = component_rows(versions, catalog)
+    fabric = fabric_api_coordinates(versions)
+
+    lines = []
+    lines.append("# Software Bill of Materials")
+    lines.append("")
+    lines.append("Generated by `build-system/generate_sbom.py`. Do not edit by hand; regenerate with")
+    lines.append("`python3 build-system/generate_sbom.py`. This file is checked by `--check` so it cannot")
+    lines.append("drift from the versions the build actually resolves.")
+    lines.append("")
+    lines.append(f"Primary target: **Minecraft {versions['primary']}**, Fabric loader "
+                 f"**{versions['loaderLatest']}**, Java **{next(r['java'] for r in versions['versions'] if r['minecraft'] == versions['primary'])}**.")
+    lines.append("")
+    lines.append("## Components")
+    lines.append("")
+    lines.append("| Coordinate | Version | Role | Licence |")
+    lines.append("| --- | --- | --- | --- |")
+    for coordinate, version, role, licence in rows:
+        lines.append(f"| `{coordinate}` | {version} | {role} | {licence} |")
+    lines.append("")
+    lines.append("Roles: **provided** = supplied by Minecraft or Fabric at runtime and never bundled; "
+                 "**build-only** = used during compilation; **test-only** = used only by the test suite.")
+    lines.append("")
+    lines.append("## Fabric API coordinates by Minecraft version")
+    lines.append("")
+    lines.append("| Fabric API | Minecraft |")
+    lines.append("| --- | --- |")
+    for coordinate, minecraft in fabric:
+        lines.append(f"| `{coordinate}` | {minecraft} |")
+    lines.append("")
+    lines.append("## Not bundled")
+    lines.append("")
+    lines.append("The optional local-AI models and the optional GGUF inference runtime are **not** "
+                 "redistributed with the client; the user downloads them from their upstream publisher "
+                 "and accepts that licence. See `docs/ai/THIRD_PARTY_NOTICES.md`.")
+    lines.append("")
+    lines.append("## Licence summary")
+    lines.append("")
+    counts: dict[str, int] = {}
+    for _, _, _, licence in rows:
+        counts[licence] = counts.get(licence, 0) + 1
+    for licence, count in sorted(counts.items()):
+        lines.append(f"- {licence}: {count}")
+    lines.append("")
+    return "\n".join(lines)
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__,
+                                     formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("--check", action="store_true",
+                        help="fail if docs/SBOM.md differs from the generated output")
+    args = parser.parse_args()
+
+    content = render()
+    if args.check:
+        if not OUTPUT.is_file() or OUTPUT.read_text() != content:
+            print("docs/SBOM.md is stale; run: python3 build-system/generate_sbom.py", file=sys.stderr)
+            return 1
+        print("docs/SBOM.md is current")
+        return 0
+
+    OUTPUT.write_text(content)
+    print(f"wrote {OUTPUT.relative_to(ROOT)}")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

@@ -72,6 +72,12 @@ final class CompatHooks {
                 .warn("World-space ESP is unavailable on this version: Fabric API exposes no world render event");
     }
 
+    static void drawTexture(net.minecraft.client.gui.DrawContext context, Identifier texture,
+                            int x, int y, float u, float v, int width, int height, int texWidth, int texHeight) {
+        context.drawTexture(net.minecraft.client.gl.RenderPipelines.GUI_TEXTURED, texture,
+                x, y, u, v, width, height, texWidth, texHeight);
+    }
+
     static MatrixStack worldMatrices(Object context) {
         return null;
     }

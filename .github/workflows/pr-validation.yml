@@ -1,0 +1,71 @@
+name: PR validation
+
+# Runs on every pull request and on pushes to the long-lived branches. The job is the same gate a
+# release must pass, minus publishing: guards, the full test suite, and a Standard + Overseer build
+# for every supported Minecraft version. If this is green, the artifact is releaseable.
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pr-validation-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 25 (Loom's build JVM)
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '25'
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install build-system dependencies
+        run: pip install cryptography
+
+      - name: Cache Gradle
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ runner.os }}-${{ hashFiles('**/*.gradle', 'gradle/libs.versions.toml', 'build-system/versions.json') }}
+          restore-keys: gradle-${{ runner.os }}-
+
+      - name: Make the wrapper executable
+        run: chmod +x ./gradlew
+
+      - name: Compatibility and inventory guards
+        run: |
+          ./gradlew --console=plain adapterGuard
+          ./gradlew --console=plain checkInventory
+          ./gradlew --console=plain checkManifest
+          ./gradlew --console=plain checkVersionRegistry
+          ./gradlew --console=plain checkSbom
+
+      - name: Test suite
+        run: ./gradlew --console=plain test
+
+      - name: Build both editions for every supported version
+        run: ./gradlew --console=plain verifyAll
+
+      - name: Upload test report on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-report
+          path: build/reports/tests/
+          if-no-files-found: ignore

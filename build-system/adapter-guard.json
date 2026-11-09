@@ -1,0 +1,41 @@
+{
+  "$comment": "Symbols that only exist on some Minecraft/Fabric versions, and must therefore never be referenced from shared code. Shared code goes through compat/Compat.java; the per-version implementation lives in src/versioned/<band>/java. This list is derived from build-system/breaking-changes.json (the register of API moves actually observed in a real compile).",
+  "sharedRoots": ["src/main/java"],
+  "exemptPrefixes": [
+    "src/main/java/com/logvex/crystal/compat/"
+  ],
+  "forbidden": [
+    {
+      "pattern": "net\\.minecraft\\.client\\.render\\.RenderLayers\\b",
+      "reason": "RenderLayers exists only on 1.21.11+. Call Compat.lines()/Compat.entityCutoutNoCull()."
+    },
+    {
+      "pattern": "net\\.fabricmc\\.fabric\\.api\\.client\\.rendering\\.v1\\.hud\\.HudElementRegistry\\b",
+      "reason": "HudElementRegistry exists only on 1.21.6+. Register the HUD through Compat.registerHud()."
+    },
+    {
+      "pattern": "net\\.fabricmc\\.fabric\\.api\\.client\\.rendering\\.v1\\.world\\.WorldRenderContext\\b",
+      "reason": "Typed WorldRenderContext exists only on 1.21.10+. Register world rendering through Compat.registerWorld()."
+    },
+    {
+      "pattern": "net\\.fabricmc\\.fabric\\.api\\.client\\.rendering\\.v1\\.WorldRenderEvents\\b",
+      "reason": "Legacy untyped WorldRenderEvents is gone at 1.21.10. Only compat/ and src/versioned/ may name it."
+    },
+    {
+      "pattern": "net\\.fabricmc\\.fabric\\.api\\.client\\.rendering\\.v1\\.HudRenderCallback\\b",
+      "reason": "HudRenderCallback is gone at 1.21.6. Only compat/ and src/versioned/ may name it."
+    },
+    {
+      "pattern": "net\\.fabricmc\\.fabric\\.api\\.resource\\.ResourceManagerHelper\\b",
+      "reason": "ResourceManagerHelper is gone at 1.21.9. Use Compat resource-loader registration."
+    },
+    {
+      "pattern": "net\\.minecraft\\.client\\.gl\\.RenderPipelines\\b",
+      "reason": "RenderPipelines is not present across the whole range. Route drawTexture through Compat."
+    },
+    {
+      "pattern": "\\bCompatHooks\\b",
+      "reason": "CompatHooks has no fixed signature across bands; only compat/Compat.java may reference it."
+    }
+  ]
+}

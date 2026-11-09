@@ -104,6 +104,18 @@ public final class Compat {
     // The world context is a different interface per band, so it crosses the facade as Object
     // and each band reads the pieces it has. The matrix type is MatrixStack in every band.
 
+    /**
+     * Draws a GUI texture with the given source rect and size. The texture argument's type
+     * changed across the range — a bare {@code Identifier} (1.21.1-1.21.4), a
+     * {@code Function<Identifier, RenderLayer>} (1.21.5-1.21.8), then a {@code RenderPipeline}
+     * (1.21.9+) — so the call is routed here rather than written inline.
+     */
+    public static void drawTexture(net.minecraft.client.gui.DrawContext context,
+                                   Identifier texture, int x, int y, float u, float v,
+                                   int width, int height, int texWidth, int texHeight) {
+        CompatHooks.drawTexture(context, texture, x, y, u, v, width, height, texWidth, texHeight);
+    }
+
     /** The camera-relative matrix stack of a world render context. */
     public static MatrixStack worldMatrices(Object context) {
         return CompatHooks.worldMatrices(context);
