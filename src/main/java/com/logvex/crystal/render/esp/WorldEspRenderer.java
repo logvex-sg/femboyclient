@@ -7,7 +7,7 @@ import java.util.List;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.font.TextRenderer;
 import net.minecraft.client.render.Camera;
-import net.minecraft.client.render.RenderLayers;
+import com.logvex.crystal.compat.Compat;
 import net.minecraft.client.render.VertexConsumer;
 import net.minecraft.client.render.VertexConsumerProvider;
 import net.minecraft.client.util.math.MatrixStack;
@@ -44,13 +44,13 @@ public final class WorldEspRenderer {
      * @param camera   the active camera
      * @param buffer   the collected primitives
      */
-    public static void render(net.fabricmc.fabric.api.client.rendering.v1.world.WorldRenderContext context,
+    public static void render(Object context,
                               MinecraftClient client, Camera camera, WorldEspCollector buffer) {
         if (buffer.isEmpty() || client.textRenderer == null) {
             return;
         }
-        MatrixStack matrices = context.matrices();
-        VertexConsumerProvider consumers = context.consumers();
+        MatrixStack matrices = Compat.worldMatrices(context);
+        VertexConsumerProvider consumers = Compat.worldConsumers(context);
         if (matrices == null || consumers == null) {
             return;
         }
@@ -74,7 +74,7 @@ public final class WorldEspRenderer {
                         box.maxX(), box.maxY(), box.maxZ())) {
                     continue;
                 }
-                VertexConsumer line = consumers.getBuffer(RenderLayers.lines());
+                VertexConsumer line = consumers.getBuffer(Compat.lines());
                 addBoxLines(line, matrix, box);
             }
             drawLabels(client, consumers, matrices, buffer.labels(), camera, frustum);
@@ -119,8 +119,8 @@ public final class WorldEspRenderer {
 
     private static void edge(VertexConsumer vc, Matrix4f m, float ax, float ay, float az,
                              float bx, float by, float bz, int color, float width) {
-        vc.vertex(m, ax, ay, az).color(color).lineWidth(width);
-        vc.vertex(m, bx, by, bz).color(color).lineWidth(width);
+        Compat.lineWidth(vc.vertex(m, ax, ay, az).color(color), width);
+        Compat.lineWidth(vc.vertex(m, bx, by, bz).color(color), width);
     }
 
     private static void drawLabels(MinecraftClient client, VertexConsumerProvider consumers, MatrixStack matrices,

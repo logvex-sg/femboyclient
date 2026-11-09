@@ -1,7 +1,7 @@
 [versions]
-# Build-plugin and test-tooling versions. The Minecraft / Yarn / Fabric-API matrix lives in
-# gradle.properties because the version catalog is resolved before project properties.
-fabric-loom = "1.18.4"
+# Test-tooling versions only. The Minecraft / mapping / Fabric-API / Loom matrix is read from
+# build-system/versions.json at build time (see build.gradle), because it depends on the
+# selected -PmcVersion and cannot be expressed as a static catalog.
 junit = "5.11.4"
 gson = "2.13.2"
 

@@ -1661,7 +1661,7 @@ public final class CommandManager {
     /**
      * The {@code ; center} command: the central Command Center. It rolls up every subsystem's
      * status, reports module compatibility and performance, and can run any registered action.
-     * Subcommands: {@code status, perf, compat [module], actions, run <id>, save, reload}.
+     * Subcommands: {@code status, perf, compat [module], actions, run <id>, gui, save, reload}.
      */
     private void center(List<String> args) {
         var service = client.commandCenter();
@@ -1674,6 +1674,19 @@ public final class CommandManager {
             return;
         }
         switch (args.get(0).toLowerCase(Locale.ROOT)) {
+            case "gui", "screen", "ui", "open" -> {
+                if (!com.logvex.crystal.gui.ScreenGuard.fontsReady()) {
+                    client.notify("The interface is not ready yet", NotificationLevel.WARN);
+                    return;
+                }
+                var workspace = com.logvex.crystal.commandcenter.ui.CommandCenterPreferences.Workspace.DASHBOARD;
+                if (args.size() >= 2) {
+                    workspace = com.logvex.crystal.commandcenter.ui.CommandCenterPreferences.Workspace
+                            .parse(args.get(1));
+                }
+                net.minecraft.client.MinecraftClient.getInstance().setScreen(
+                        new com.logvex.crystal.gui.CommandCenterScreen(client, workspace));
+            }
             case "perf", "performance" -> {
                 var report = service.performance();
                 client.notify(report.summary(), report.clean() ? NotificationLevel.SUCCESS : NotificationLevel.WARN);

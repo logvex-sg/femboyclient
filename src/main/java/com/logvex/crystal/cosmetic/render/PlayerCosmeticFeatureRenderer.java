@@ -2,7 +2,7 @@ package com.logvex.crystal.cosmetic.render;
 
 import com.logvex.crystal.cosmetic.PlayerCosmetics;
 import net.minecraft.client.render.OverlayTexture;
-import net.minecraft.client.render.RenderLayers;
+import com.logvex.crystal.compat.Compat;
 import net.minecraft.client.render.command.OrderedRenderCommandQueue;
 import net.minecraft.client.render.command.RenderCommandQueue;
 import net.minecraft.client.render.entity.feature.FeatureRenderer;
@@ -58,7 +58,7 @@ public final class PlayerCosmeticFeatureRenderer
         ((ModelWithHead) context).applyTransform(matrices);
 
         RenderCommandQueue batch = queue.getBatchingQueue(0);
-        batch.submitModel(model, state, matrices, RenderLayers.entityCutoutNoCull(TEXTURE),
+        batch.submitModel(model, state, matrices, Compat.entityCutoutNoCull(TEXTURE),
                 light, OverlayTexture.DEFAULT_UV, state.outlineColor, null);
         matrices.pop();
     }

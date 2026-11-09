@@ -31,7 +31,6 @@ import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientLifecycleEvents;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import net.fabricmc.fabric.api.client.message.v1.ClientSendMessageEvents;
-import net.fabricmc.fabric.api.client.rendering.v1.hud.HudElementRegistry;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.option.KeyBinding;
 import net.minecraft.client.util.InputUtil;
@@ -146,6 +145,20 @@ public final class CrystalClient implements ClientModInitializer {
     private com.logvex.crystal.commandcenter.CommandCenterService commandCenter;
     /** Wall-clock of the last cached status snapshot, so the tick path can throttle it. */
     private long lastCommandCenterSnapshotMillis;
+
+    // ---- Phase 8B: the user-facing Command Center (UI, workspaces, automation) ----
+    private com.logvex.crystal.commandcenter.ui.CommandCenterStore commandCenterStore;
+    private final com.logvex.crystal.commandcenter.ui.CommandCenterPreferences commandCenterPreferences =
+            new com.logvex.crystal.commandcenter.ui.CommandCenterPreferences();
+    private com.logvex.crystal.commandcenter.ui.DashboardLayout dashboardLayout =
+            com.logvex.crystal.commandcenter.ui.DashboardLayout.defaults();
+    private final com.logvex.crystal.commandcenter.ui.PerformanceHistory performanceHistory =
+            new com.logvex.crystal.commandcenter.ui.PerformanceHistory();
+    private com.logvex.crystal.commandcenter.assistant.AssistantService assistant;
+    private com.logvex.crystal.commandcenter.quick.QuickActionEngine quickActions;
+    private com.logvex.crystal.commandcenter.ui.DiagnosticNotifier diagnosticNotifier;
+    private com.logvex.crystal.commandcenter.ui.UnifiedSearchIndex searchIndex;
+    private long lastSearchIndexMillis;
 
     private boolean wasInWorld;
     private String lastDimension = "";
@@ -326,6 +339,7 @@ public final class CrystalClient implements ClientModInitializer {
 
         bootstrapAi();
         bootstrapCommandCenter();
+        bootstrapCommandCenterUi();
 
         registerKeybind();
         registerCosmetics();
@@ -480,6 +494,98 @@ public final class CrystalClient implements ClientModInitializer {
     }
 
     /**
+     * The Phase 8B user-facing layer: it loads the Command Center's own preferences, the
+     * dashboard layout and the quick-action definitions, then builds the assistant, the
+     * diagnostic notifier and the quick-action engine over the services 8A already created.
+     *
+     * <p>Everything here is optional and degrades to defaults: a missing or malformed store
+     * leaves the 8A backend untouched, so the Command Center still works.
+     */
+    private void bootstrapCommandCenterUi() {
+        commandCenterStore = new com.logvex.crystal.commandcenter.ui.CommandCenterStore(
+                ConfigPaths.commandCenter());
+        var loaded = commandCenterStore.load();
+        copyInto(loaded.preferences(), commandCenterPreferences);
+        dashboardLayout = loaded.layout();
+        for (var action : loaded.quickActions()) {
+            quickActions().upsert(action);
+        }
+
+        assistant = new com.logvex.crystal.commandcenter.assistant.AssistantService(
+                () -> commandCenter == null ? null : commandCenter.statusModel(),
+                () -> commandCenter == null ? null : commandCenter.performance(),
+                () -> ai, () -> aiSettings.localAnalysis);
+        diagnosticNotifier = new com.logvex.crystal.commandcenter.ui.DiagnosticNotifier(
+                notifications, commandCenterPreferences);
+        quickActions.setEnabled(quickActions.size() > 0);
+        LOG.info("Command Center UI ready: {} quick action(s), default workspace {}",
+                quickActions.size(), commandCenterPreferences.defaultWorkspace.label());
+    }
+
+    /** The quick-action engine, built lazily so bootstrap order does not matter. */
+    public com.logvex.crystal.commandcenter.quick.QuickActionEngine quickActions() {
+        if (quickActions == null) {
+            quickActions = new com.logvex.crystal.commandcenter.quick.QuickActionEngine(
+                    new com.logvex.crystal.commandcenter.quick.ClientQuickActionHandler(this));
+        }
+        return quickActions;
+    }
+
+    /** The quick-action context, rebuilt on demand from the live services. */
+    private com.logvex.crystal.commandcenter.quick.QuickActionContext quickActionContext() {
+        return new com.logvex.crystal.commandcenter.quick.ClientQuickActionContext(
+                () -> commandCenter == null ? null : commandCenter.statusModel(),
+                () -> commandCenter == null ? null : commandCenter.performance(),
+                () -> errors().totalRecorded(),
+                () -> crashMonitor.size(),
+                () -> baritone.available(),
+                () -> ai != null && ai.isLoaded(),
+                () -> MinecraftClient.getInstance() != null && MinecraftClient.getInstance().world != null);
+    }
+
+    /** Copies the loaded preferences into the live holder, so callers keep one stable instance. */
+    private static void copyInto(com.logvex.crystal.commandcenter.ui.CommandCenterPreferences source,
+                                 com.logvex.crystal.commandcenter.ui.CommandCenterPreferences target) {
+        var copy = source.copy();
+        target.defaultWorkspace = copy.defaultWorkspace;
+        target.refreshIntervalMillis = copy.refreshIntervalMillis;
+        target.historyIntervalMillis = copy.historyIntervalMillis;
+        target.hudShowFindings = copy.hudShowFindings;
+        target.notificationsEnabled = copy.notificationsEnabled;
+        target.dedupeNotifications = copy.dedupeNotifications;
+        target.notificationCooldownMillis = copy.notificationCooldownMillis;
+        target.notificationRateLimit = copy.notificationRateLimit;
+        target.autoApplyQuickActions = copy.autoApplyQuickActions;
+        target.reducedMotion = copy.reducedMotion;
+    }
+
+    /** Persists the Command Center's own preferences, layout and quick actions. */
+    public void saveCommandCenter() {
+        if (commandCenterStore == null) {
+            return;
+        }
+        try {
+            commandCenterStore.save(commandCenterPreferences, dashboardLayout, quickActions().actions());
+        } catch (IOException e) {
+            LOG.warn("Failed to save the Command Center configuration", e);
+        }
+    }
+
+    /** Re-reads the Command Center's own preferences, layout and quick actions. */
+    public void reloadCommandCenter() {
+        if (commandCenterStore == null) {
+            return;
+        }
+        var loaded = commandCenterStore.load();
+        copyInto(loaded.preferences(), commandCenterPreferences);
+        dashboardLayout = loaded.layout();
+        quickActions().clear();
+        for (var action : loaded.quickActions()) {
+            quickActions().upsert(action);
+        }
+    }
+
+    /**
      * The mini-AI per-tick work: advance the model manager's idle-unload clock and refresh the
      * cached Baritone advice at a low rate. Both are cheap; the model's heavy work happens on its
      * own worker thread, so the game thread is never blocked.
@@ -555,11 +661,36 @@ public final class CrystalClient implements ClientModInitializer {
         int aiRejected = ai == null ? 0 : ai.rejectedCount();
         int backlog = events.history().size();
         int activeActions = actionCoordinator.activeCount();
-        commandCenter.samplePerformance(now, activeModules, worstName, worstTick, totalTick,
-                aiQueue, aiRejected, backlog, activeActions);
+        var sample = commandCenter.samplePerformance(now, activeModules, worstName, worstTick, totalTick,
+                aiQueue, aiRejected, backlog, activeActions).sample();
         if (now - lastCommandCenterSnapshotMillis >= 500) {
             lastCommandCenterSnapshotMillis = now;
-            commandCenter.refreshStatus();
+            var model = commandCenter.snapshot();
+            // The diagnostic notifier and the quick-action engine only see a fresh snapshot,
+            // so they run at the same throttled rate rather than every frame.
+            if (diagnosticNotifier != null) {
+                diagnosticNotifier.observe(model, now);
+            }
+        }
+        // History sampling is internally throttled to the user's interval.
+        performanceHistory.sampleIfDue(now, sample, usedMemoryBytes());
+        if (quickActions != null) {
+            quickActions.tick(quickActionContext(), now);
+        }
+    }
+
+    /** Currently used JVM heap, for the memory history series. */
+    private static long usedMemoryBytes() {
+        Runtime runtime = Runtime.getRuntime();
+        return runtime.totalMemory() - runtime.freeMemory();
+    }
+
+    /** Samples performance and the history right now (used by the Performance workspace). */
+    public void samplePerformanceNow() {
+        tickCommandCenter();
+        long now = System.currentTimeMillis();
+        if (commandCenter != null) {
+            performanceHistory.record(commandCenter.performance().sample(), usedMemoryBytes(), now);
         }
     }
 
@@ -617,13 +748,12 @@ public final class CrystalClient implements ClientModInitializer {
         ClientSendMessageEvents.ALLOW_CHAT.register(message -> !commands.handleChat(message));
         ClientSendMessageEvents.ALLOW_COMMAND.register(message -> !commands.handleChat("." + message));
         // Register the whole Crystal HUD as one layer attached after the vanilla HUD.
-        HudElementRegistry.attachElementAfter(
-                net.fabricmc.fabric.api.client.rendering.v1.hud.VanillaHudElements.MISC_OVERLAYS,
-                net.minecraft.util.Identifier.of("logvex-crystal", "hud"),
-                this::renderHud);
+        com.logvex.crystal.compat.Compat.registerHud((context, tickCounter) -> renderHud(
+                (net.minecraft.client.gui.DrawContext) context,
+                (net.minecraft.client.render.RenderTickCounter) tickCounter));
         // World-space ESP is collected and drawn inside the world render pass, where the
         // camera-relative matrix stack and vertex consumers are valid.
-        net.fabricmc.fabric.api.client.rendering.v1.world.WorldRenderEvents.BEFORE_DEBUG_RENDER.register(this::renderWorldEsp);
+        com.logvex.crystal.compat.Compat.registerWorld(this::renderWorldEsp);
     }
 
     /** The Crystal HUD pass: every enabled HUD element, then the cosmetic particles. */
@@ -651,7 +781,7 @@ public final class CrystalClient implements ClientModInitializer {
      * single pass. Bails out early when nothing is registered or no world is loaded, so the
      * hook costs nothing when ESP is off.
      */
-    private void renderWorldEsp(net.fabricmc.fabric.api.client.rendering.v1.world.WorldRenderContext context) {
+    private void renderWorldEsp(Object context) {
         if (!hud.hasWorldEsp()) {
             return;
         }
@@ -663,7 +793,7 @@ public final class CrystalClient implements ClientModInitializer {
             worldEsp.clear();
             hud.collectWorldEsp(worldEsp, client);
             com.logvex.crystal.render.esp.WorldEspRenderer.render(context, client,
-                    context.gameRenderer().getCamera(), worldEsp);
+                    com.logvex.crystal.compat.Compat.worldCamera(context), worldEsp);
         } catch (Throwable t) {
             LOG.error("World ESP render failed", t);
         }
@@ -1135,6 +1265,7 @@ public final class CrystalClient implements ClientModInitializer {
             if (aiSettingsStore != null) {
                 aiSettingsStore.save(aiSettings);
             }
+            saveCommandCenter();
         } catch (IOException e) {
             LOG.warn("Failed to save configuration", e);
         }
@@ -1155,6 +1286,7 @@ public final class CrystalClient implements ClientModInitializer {
             if (aiSettingsStore != null) {
                 aiSettingsStore.loadInto(aiSettings);
             }
+            reloadCommandCenter();
         } finally {
             loadingConfig = false;
         }
@@ -1248,6 +1380,96 @@ public final class CrystalClient implements ClientModInitializer {
     public com.logvex.crystal.commandcenter.CommandCenterService commandCenter() {
         return commandCenter;
     }
+
+    // ------------------------------------------------------------ Command Center UI
+
+    /** The Command Center's own preferences (default workspace, intervals, notification policy). */
+    public com.logvex.crystal.commandcenter.ui.CommandCenterPreferences commandCenterPreferences() {
+        return commandCenterPreferences;
+    }
+
+    /** The user-arranged dashboard layout. */
+    public com.logvex.crystal.commandcenter.ui.DashboardLayout dashboardLayout() {
+        return dashboardLayout;
+    }
+
+    /** The bounded performance history behind the Performance workspace charts. */
+    public com.logvex.crystal.commandcenter.ui.PerformanceHistory performanceHistory() {
+        return performanceHistory;
+    }
+
+    /** The AI assistant workspace service (deterministic, with optional model enhancement). */
+    public com.logvex.crystal.commandcenter.assistant.AssistantService assistant() {
+        return assistant;
+    }
+
+    /** The diagnostic notifier that turns new problems into (deduplicated) notifications. */
+    public com.logvex.crystal.commandcenter.ui.DiagnosticNotifier diagnosticNotifier() {
+        return diagnosticNotifier;
+    }
+
+    /**
+     * The unified search index, rebuilt at most once a second so the screen can search modules,
+     * settings, commands, workspaces, profiles and actions from one box.
+     */
+    public com.logvex.crystal.commandcenter.ui.UnifiedSearchIndex searchIndex() {
+        long now = System.currentTimeMillis();
+        if (searchIndex == null || now - lastSearchIndexMillis > 1000) {
+            searchIndex = buildSearchIndex();
+            lastSearchIndexMillis = now;
+        }
+        return searchIndex;
+    }
+
+    /** Rebuilds the unified search index from the live services. */
+    private com.logvex.crystal.commandcenter.ui.UnifiedSearchIndex buildSearchIndex() {
+        var index = new com.logvex.crystal.commandcenter.ui.UnifiedSearchIndex();
+        for (var module : modules.all()) {
+            index.add(com.logvex.crystal.commandcenter.ui.SearchEntry.of(
+                    com.logvex.crystal.commandcenter.ui.SearchEntry.Category.MODULE,
+                    module.name(), module.category().displayName(), "", module.name()));
+            for (com.logvex.crystal.setting.SettingGroup group : module.groups()) {
+                for (com.logvex.crystal.setting.Setting<?> setting : group.settings()) {
+                    index.add(com.logvex.crystal.commandcenter.ui.SearchEntry.of(
+                            com.logvex.crystal.commandcenter.ui.SearchEntry.Category.SETTING,
+                            setting.name(), module.name() + " \u00B7 " + group.name(), "",
+                            module.name()));
+                }
+            }
+        }
+        if (commandCenter != null) {
+            for (var action : commandCenter.actions().all()) {
+                index.add(com.logvex.crystal.commandcenter.ui.SearchEntry.of(
+                        com.logvex.crystal.commandcenter.ui.SearchEntry.Category.ACTION,
+                        action.label(), action.category() + " \u00B7 " + action.description(),
+                        action.id(), ""));
+            }
+        }
+        for (com.logvex.crystal.commandcenter.ui.CommandCenterPreferences.Workspace workspace
+                : com.logvex.crystal.commandcenter.ui.CommandCenterPreferences.Workspace.values()) {
+            index.add(com.logvex.crystal.commandcenter.ui.SearchEntry.of(
+                    com.logvex.crystal.commandcenter.ui.SearchEntry.Category.WORKSPACE,
+                    workspace.label(), "Command Center workspace", "", workspace.name()));
+        }
+        for (String profile : profileService.names()) {
+            index.add(com.logvex.crystal.commandcenter.ui.SearchEntry.of(
+                    com.logvex.crystal.commandcenter.ui.SearchEntry.Category.PROFILE,
+                    profile, "saved profile", "", profile));
+        }
+        for (String command : COMMAND_HINTS) {
+            index.add(com.logvex.crystal.commandcenter.ui.SearchEntry.of(
+                    com.logvex.crystal.commandcenter.ui.SearchEntry.Category.COMMAND,
+                    command, "command \u00B7 ; " + command, "", command));
+        }
+        return index;
+    }
+
+    /** The common commands the search box can run directly, with their prefixes stripped. */
+    private static final java.util.List<String> COMMAND_HINTS = java.util.List.of(
+            "center", "center status", "center perf", "center compat", "conflicts", "errors",
+            "diag", "modules", "hud", "hudedit", "keybinds", "profile", "favorites", "recent",
+            "theme", "appearance", "waypoint", "baritone", "ai", "automation", "world", "entities",
+            "notifications", "save", "reload");
 
     /**
      * The ClickGUI, created on first use.

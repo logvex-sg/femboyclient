@@ -1,5 +1,7 @@
 package com.logvex.crystal.gui;
 
+import com.logvex.crystal.compat.Compat;
+
 import com.logvex.crystal.client.CrystalClient;
 import com.logvex.crystal.config.ConfigManager;
 import com.logvex.crystal.config.FavoritesStore;
@@ -64,6 +66,9 @@ public final class ClickGui extends Screen {
     private static final int KEYBIND_BUTTON_INSET = 122;
     private static final int PROFILE_BUTTON_W = 44;
     private static final int PROFILE_BUTTON_INSET = 62;
+    /** The Command Center shortcut sits left of the keybinds/profiles buttons. */
+    private static final int CENTER_BUTTON_W = 48;
+    private static final int CENTER_BUTTON_INSET = 176;
     private static final int CARD_HEIGHT = 22;
     private static final int ROW_HEIGHT = 16;
 
@@ -196,8 +201,8 @@ public final class ClickGui extends Screen {
         // resize the whole interface without touching a single layout constant.
         float scale = uiScale();
         var matrices = context.getMatrices();
-        matrices.pushMatrix();
-        matrices.scale(scale, scale);
+        Compat.matrixPush(matrices);
+        Compat.matrixScale(matrices, scale);
         int virtualWidth = vw();
         int virtualHeight = vh();
         int virtualMouseX = (int) Math.round(mouseX / scale);
@@ -212,7 +217,7 @@ public final class ClickGui extends Screen {
         panelRight = virtualWidth - margin + panelOffsetX;
         panelBottom = virtualHeight - margin - animOffset + panelOffsetY;
         if (panelBottom <= panelTop) {
-            matrices.popMatrix();
+            Compat.matrixPop(matrices);
             return;
         }
 
@@ -251,7 +256,7 @@ public final class ClickGui extends Screen {
             drawContextMenu(context, palette, virtualMouseX, virtualMouseY);
         }
         drawCursor(context, palette, virtualMouseX, virtualMouseY);
-        matrices.popMatrix();
+        Compat.matrixPop(matrices);
 
         // Tooltips and the context menu live in real screen space so they sit above
         // everything regardless of UI scale.
@@ -364,7 +369,8 @@ public final class ClickGui extends Screen {
         // Active module counter, right of the page label.
         context.drawTextWithShadow(textRenderer, modules.enabledCount() + " active",
                 subX + textRenderer.getWidth(sub) + 12, panelTop + 9, palette.secondary());
-        // Header shortcut buttons: keybinds, profiles, then the close button at the far right.
+        // Header shortcut buttons: command center, keybinds, profiles, then the close button.
+        drawHeaderButton(context, palette, "center", panelRight - CENTER_BUTTON_INSET, panelTop + 5, CENTER_BUTTON_W);
         drawHeaderButton(context, palette, "keybinds", panelRight - KEYBIND_BUTTON_INSET, panelTop + 5, KEYBIND_BUTTON_W);
         drawHeaderButton(context, palette, "profiles", panelRight - PROFILE_BUTTON_INSET, panelTop + 5, PROFILE_BUTTON_W);
         context.drawTextWithShadow(textRenderer, "\u2715", panelRight - 18, panelTop + 5, palette.textDim());
@@ -920,6 +926,11 @@ public final class ClickGui extends Screen {
             close();
             return true;
         }
+        if (button == 0 && inRect(mouseX, mouseY, panelRight - CENTER_BUTTON_INSET, panelTop + 5,
+                CENTER_BUTTON_W, 14)) {
+            openCommandCenterScreen();
+            return true;
+        }
         if (button == 0 && inRect(mouseX, mouseY, panelRight - KEYBIND_BUTTON_INSET, panelTop + 5,
                 KEYBIND_BUTTON_W, 14)) {
             openKeybindScreen();
@@ -956,6 +967,15 @@ public final class ClickGui extends Screen {
         if (bootstrap != null) {
             net.minecraft.client.MinecraftClient.getInstance().setScreen(
                     new ProfileScreen(bootstrap.profiles(), theme));
+        }
+    }
+
+    /** Opens the Command Center from the header shortcut, defaulting to the dashboard. */
+    private void openCommandCenterScreen() {
+        CrystalClient bootstrap = CrystalClient.get();
+        if (bootstrap != null) {
+            net.minecraft.client.MinecraftClient.getInstance().setScreen(
+                    new CommandCenterScreen(bootstrap, bootstrap.commandCenterPreferences().defaultWorkspace));
         }
     }
 

@@ -1,5 +1,7 @@
 package com.logvex.crystal.gui;
 
+import com.logvex.crystal.compat.Compat;
+
 import com.logvex.crystal.client.CrystalClient;
 import com.logvex.crystal.gui.hud.CoordsHudElement;
 import com.logvex.crystal.gui.hud.CrystalDamageHudElement;
@@ -401,12 +403,12 @@ public final class HudManager {
                               MinecraftClient client, float tickDelta, int x, int y, boolean right) {
         float scale = entry.scale <= 0.05f ? 1f : entry.scale;
         var matrices = context.getMatrices();
-        matrices.pushMatrix();
+        Compat.matrixPush(matrices);
         try {
             if (scale != 1f) {
-                matrices.translate(x, y);
-                matrices.scale(scale, scale);
-                matrices.translate(-x, -y);
+                Compat.matrixTranslate(matrices, x, y);
+                Compat.matrixScale(matrices, scale);
+                Compat.matrixTranslate(matrices, -x, -y);
             }
             this.currentOpacity = clamp01(entry.opacity);
             if (entry.background || entry.border) {
@@ -427,7 +429,7 @@ public final class HudManager {
             element.render(context, client, tickDelta, x, y, right);
         } finally {
             this.currentOpacity = 1f;
-            matrices.popMatrix();
+            Compat.matrixPop(matrices);
         }
     }
 

@@ -75,6 +75,11 @@ public final class ConfigPaths {
         return directory().resolve("ai.json");
     }
 
+    /** Phase 8B Command Center preferences, dashboard layout and quick actions. */
+    public static Path commandCenter() {
+        return directory().resolve("command-center.json");
+    }
+
     /** Directory holding optional local models and the crash/report stores. */
     public static Path aiDirectory() {
         return directory().resolve("ai");

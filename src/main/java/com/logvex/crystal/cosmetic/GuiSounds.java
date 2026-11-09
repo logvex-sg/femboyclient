@@ -1,9 +1,9 @@
 package com.logvex.crystal.cosmetic;
 
 import com.logvex.crystal.client.CrystalClient;
+import com.logvex.crystal.compat.Compat;
 import com.logvex.crystal.util.BestEffort;
 import net.minecraft.client.MinecraftClient;
-import net.minecraft.client.sound.PositionedSoundInstance;
 import net.minecraft.registry.entry.RegistryEntry;
 import net.minecraft.sound.SoundEvent;
 import net.minecraft.sound.SoundEvents;
@@ -57,7 +57,7 @@ public final class GuiSounds {
         BestEffort.run("gui-sound", "UI sound", () -> {
             MinecraftClient client = MinecraftClient.getInstance();
             if (client.getSoundManager() != null) {
-                client.getSoundManager().play(PositionedSoundInstance.ui(event.value(), volume, jitter(pitch)));
+                client.getSoundManager().play(Compat.uiSound(event.value(), volume, jitter(pitch)));
             }
         });
     }
@@ -69,7 +69,7 @@ public final class GuiSounds {
         BestEffort.run("gui-sound", "UI sound", () -> {
             MinecraftClient client = MinecraftClient.getInstance();
             if (client.getSoundManager() != null) {
-                client.getSoundManager().play(PositionedSoundInstance.ui(event, volume, jitter(pitch)));
+                client.getSoundManager().play(Compat.uiSound(event, volume, jitter(pitch)));
             }
         });
     }

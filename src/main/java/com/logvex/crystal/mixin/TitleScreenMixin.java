@@ -1,6 +1,7 @@
 package com.logvex.crystal.mixin;
 
 import com.logvex.crystal.client.CrystalClient;
+import com.logvex.crystal.compat.Compat;
 import net.minecraft.client.gui.screen.SplashTextRenderer;
 import net.minecraft.client.gui.screen.TitleScreen;
 import net.minecraft.text.Text;
@@ -43,6 +44,6 @@ public abstract class TitleScreenMixin {
             return;
         }
         int index = (int) ((System.currentTimeMillis() / 1000L) % CUTE_SPLASHES.length);
-        this.splashText = new SplashTextRenderer(Text.literal(CUTE_SPLASHES[index]));
+        this.splashText = new SplashTextRenderer(Compat.splashText(Text.literal(CUTE_SPLASHES[index])));
     }
 }

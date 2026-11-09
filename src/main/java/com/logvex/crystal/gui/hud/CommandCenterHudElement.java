@@ -62,7 +62,9 @@ public final class CommandCenterHudElement implements HudElement {
         String perf = performance == null || !performance.sample().hasFrameData()
                 ? "perf -"
                 : performance.sample().fps() + " fps";
-        String top = performance != null && !performance.findings().isEmpty()
+        boolean showFindings = CrystalClient.get() == null
+                || CrystalClient.get().commandCenterPreferences().hudShowFindings;
+        String top = showFindings && performance != null && !performance.findings().isEmpty()
                 ? performance.findings().get(0).observation() : null;
         if (top == null) {
             return new String[]{header, problems + " \u00B7 " + perf};

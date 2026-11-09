@@ -1,0 +1,350 @@
+{
+  "$comment": "Breaking-change register for the LOGVEX CRYSTAL multi-version range. Each entry is a Minecraft/Fabric API change that breaks the 1.21.11 source when compiling against an older release. Boundaries were re-verified by javap against the Loom/modularity caches (see docs/phase9/verification.md); several were corrected from an earlier draft. 'introduced' is the first version in range that has the new API; 'lastAbsent' is the last version that still has the old API. 'bands' lists the compat source bands (src/versioned/<band>) whose CompatHooks implementation absorbs the change; 'implemented' is false when the band that would absorb it is not yet written.",
+  "bands": {
+    "pre-matrix": "1.21.1 .. 1.21.5  MatrixStack + HudRenderCallback + legacy untyped world events",
+    "pre-world": "1.21.6 .. 1.21.8  Matrix3x2fStack + v1.hud; still legacy untyped world events",
+    "no-world-event": "1.21.9  as pre-world, but fabric-rendering-v1 16.0.1 ships no world render event at all",
+    "pre-layers": "1.21.10  typed v1.world context; old RenderLayer/sound/splash factories",
+    "modern": "1.21.11+  RenderLayers factories + VertexConsumer.lineWidth + PositionedSoundInstance.ui",
+    "mojang": "26.x  pending the namespace layer; no directory yet"
+  },
+  "entries": [
+    {
+      "id": "matrix-type",
+      "area": "render",
+      "summary": "DrawContext.getMatrices() changed from net.minecraft.client.util.math.MatrixStack to org.joml.Matrix3x2fStack, and the push/pop/scale operation names changed with it.",
+      "introduced": "1.21.6",
+      "lastAbsent": "1.21.5",
+      "newApi": [
+        "org.joml.Matrix3x2fStack",
+        "Matrix3x2fStack.pushMatrix()",
+        "Matrix3x2fStack.scale(float, float)"
+      ],
+      "oldApi": [
+        "net.minecraft.client.util.math.MatrixStack",
+        "MatrixStack.push()",
+        "MatrixStack.scale(float, float, float)"
+      ],
+      "affectedFiles": [
+        "gui/ClickGui.java",
+        "gui/HudManager.java",
+        "gui/CommandCenterScreen.java",
+        "gui/hud/NotificationHudElement.java"
+      ],
+      "bands": [
+        "pre-matrix",
+        "pre-world",
+        "no-world-event",
+        "pre-layers",
+        "modern"
+      ],
+      "implemented": true
+    },
+    {
+      "id": "fabric-hud-events",
+      "area": "fabric-api",
+      "summary": "HUD element registration moved from HudRenderCallback to the v1.hud package (HudElementRegistry, VanillaHudElements).",
+      "introduced": "1.21.6",
+      "lastAbsent": "1.21.5",
+      "newApi": [
+        "net.fabricmc.fabric.api.client.rendering.v1.hud.HudElementRegistry"
+      ],
+      "oldApi": [
+        "net.fabricmc.fabric.api.client.rendering.v1.HudRenderCallback"
+      ],
+      "affectedFiles": [
+        "client/CrystalClient.java"
+      ],
+      "bands": [
+        "pre-matrix",
+        "pre-world",
+        "no-world-event",
+        "pre-layers",
+        "modern"
+      ],
+      "implemented": true
+    },
+    {
+      "id": "render-layers",
+      "area": "render",
+      "summary": "Static render-layer factories moved from RenderLayer.getX() to RenderLayers.x().",
+      "introduced": "1.21.11",
+      "lastAbsent": "1.21.10",
+      "newApi": [
+        "net.minecraft.client.render.RenderLayers",
+        "RenderLayers.lines()",
+        "RenderLayers.entityCutoutNoCull(Identifier)"
+      ],
+      "oldApi": [
+        "RenderLayer.getLines()",
+        "RenderLayer.getEntityCutoutNoCull(Identifier)"
+      ],
+      "affectedFiles": [
+        "render/esp/WorldEspRenderer.java",
+        "cosmetic/render/PlayerCosmeticFeatureRenderer.java"
+      ],
+      "bands": [
+        "pre-matrix",
+        "pre-world",
+        "no-world-event",
+        "pre-layers",
+        "modern"
+      ],
+      "implemented": true
+    },
+    {
+      "id": "render-pipelines",
+      "area": "render",
+      "summary": "DrawContext.drawTexture now takes a RenderPipeline from net.minecraft.client.gl.RenderPipelines instead of a RenderLayer factory.",
+      "introduced": "1.21.5",
+      "lastAbsent": "1.21.4",
+      "newApi": [
+        "net.minecraft.client.gl.RenderPipelines",
+        "DrawContext.drawTexture(RenderPipeline, Identifier, ...)"
+      ],
+      "oldApi": [
+        "DrawContext.drawTexture(Function<Identifier, RenderLayer>, Identifier, ...)"
+      ],
+      "affectedFiles": [
+        "assets/Assets.java"
+      ],
+      "bands": [
+        "pre-matrix"
+      ],
+      "implemented": false
+    },
+    {
+      "id": "vertex-line-width",
+      "area": "render",
+      "summary": "VertexConsumer.lineWidth(float) was added; the layer itself carried the width before 1.21.11.",
+      "introduced": "1.21.11",
+      "lastAbsent": "1.21.10",
+      "newApi": [
+        "VertexConsumer.lineWidth(float)"
+      ],
+      "oldApi": [
+        "(no per-vertex width; set on the render layer)"
+      ],
+      "affectedFiles": [
+        "render/esp/WorldEspRenderer.java"
+      ],
+      "bands": [
+        "pre-matrix",
+        "pre-world",
+        "no-world-event",
+        "pre-layers",
+        "modern"
+      ],
+      "implemented": true
+    },
+    {
+      "id": "positioned-sound-ui",
+      "area": "sound",
+      "summary": "PositionedSoundInstance.ui(SoundEvent, float, float) was added for UI sounds.",
+      "introduced": "1.21.11",
+      "lastAbsent": "1.21.10",
+      "newApi": [
+        "PositionedSoundInstance.ui(SoundEvent, float, float)"
+      ],
+      "oldApi": [
+        "PositionedSoundInstance.master(SoundEvent, float, float)"
+      ],
+      "affectedFiles": [
+        "cosmetic/GuiSounds.java"
+      ],
+      "bands": [
+        "pre-matrix",
+        "pre-world",
+        "no-world-event",
+        "pre-layers",
+        "modern"
+      ],
+      "implemented": true
+    },
+    {
+      "id": "splash-text",
+      "area": "gui",
+      "summary": "SplashTextRenderer's constructor takes Text instead of String.",
+      "introduced": "1.21.11",
+      "lastAbsent": "1.21.10",
+      "newApi": [
+        "SplashTextRenderer(Text)"
+      ],
+      "oldApi": [
+        "SplashTextRenderer(String)"
+      ],
+      "affectedFiles": [
+        "mixin/TitleScreenMixin.java"
+      ],
+      "bands": [
+        "pre-matrix",
+        "pre-world",
+        "no-world-event",
+        "pre-layers",
+        "modern"
+      ],
+      "implemented": true
+    },
+    {
+      "id": "fabric-world-events",
+      "area": "fabric-api",
+      "summary": "World render events moved to the v1.world package with a typed WorldRenderContext (matrices()/consumers()); 1.21.9 ships neither the new nor the old event.",
+      "introduced": "1.21.10",
+      "lastAbsent": "1.21.8",
+      "newApi": [
+        "net.fabricmc.fabric.api.client.rendering.v1.world.WorldRenderEvents",
+        "net.fabricmc.fabric.api.client.rendering.v1.world.WorldRenderContext"
+      ],
+      "oldApi": [
+        "net.fabricmc.fabric.api.client.rendering.v1.WorldRenderEvents"
+      ],
+      "affectedFiles": [
+        "client/CrystalClient.java",
+        "render/esp/WorldEspRenderer.java"
+      ],
+      "bands": [
+        "pre-world",
+        "no-world-event",
+        "pre-layers",
+        "modern"
+      ],
+      "implemented": true
+    },
+    {
+      "id": "input-records",
+      "area": "gui/input",
+      "summary": "Screen input callbacks pass typed records (Click, KeyInput, CharInput) instead of loose primitives.",
+      "introduced": "1.21.9",
+      "lastAbsent": "1.21.8",
+      "newApi": [
+        "net.minecraft.client.gui.Click",
+        "net.minecraft.client.input.KeyInput",
+        "net.minecraft.client.input.CharInput"
+      ],
+      "oldApi": [
+        "Screen.mouseClicked(double, double, int)",
+        "Screen.keyPressed(int, int, int)",
+        "Screen.charTyped(char, int)"
+      ],
+      "affectedFiles": [
+        "gui/ClickGui.java",
+        "gui/AIAssistantScreen.java",
+        "gui/BaritoneScreen.java",
+        "gui/ProfileScreen.java",
+        "gui/HudEditorScreen.java",
+        "gui/EntityBrowserScreen.java",
+        "gui/WaypointScreen.java",
+        "gui/KeybindScreen.java",
+        "gui/CommandCenterScreen.java",
+        "mixin/KeyboardMixin.java"
+      ],
+      "bands": [
+        "pre-matrix",
+        "pre-world"
+      ],
+      "implemented": false
+    },
+    {
+      "id": "entity-pos",
+      "area": "entity",
+      "summary": "Entity position accessor renamed to getEntityPos().",
+      "introduced": "1.21.9",
+      "lastAbsent": "1.21.8",
+      "newApi": [
+        "Entity.getEntityPos()"
+      ],
+      "oldApi": [
+        "Entity.getPos()"
+      ],
+      "affectedFiles": [
+        "combat/CombatService.java",
+        "module/render/CrystalEspModule.java",
+        "module/render/TracersModule.java",
+        "module/combat/AutoCrystalModule.java"
+      ],
+      "bands": [
+        "pre-matrix",
+        "pre-world"
+      ],
+      "implemented": false
+    },
+    {
+      "id": "fabric-resource-events",
+      "area": "fabric-api",
+      "summary": "Resource reload registration moved to fabric-resource-loader-v1 (net.fabricmc.fabric.api.resource.v1.ResourceLoader); the v1 module first ships at 1.21.9.",
+      "introduced": "1.21.9",
+      "lastAbsent": "1.21.8",
+      "newApi": [
+        "net.fabricmc.fabric.api.resource.v1.ResourceLoader"
+      ],
+      "oldApi": [
+        "net.fabricmc.fabric.api.resource.ResourceManagerHelper"
+      ],
+      "affectedFiles": [
+        "client/CrystalClient.java",
+        "assets/AssetRegistry.java"
+      ],
+      "bands": [
+        "pre-matrix",
+        "pre-world"
+      ],
+      "implemented": false
+    },
+    {
+      "id": "entity-render-state",
+      "area": "render/entity",
+      "summary": "Entity renderers use a separate *RenderState object and an OrderedRenderCommandQueue; FeatureRendererContext typing changed.",
+      "introduced": "1.21.9",
+      "lastAbsent": "1.21.8",
+      "newApi": [
+        "net.minecraft.client.render.entity.state.PlayerEntityRenderState",
+        "net.minecraft.client.render.command.OrderedRenderCommandQueue"
+      ],
+      "oldApi": [
+        "net.minecraft.client.render.entity.model.PlayerEntityModel (direct context)"
+      ],
+      "affectedFiles": [
+        "cosmetic/render/PlayerCosmeticFeatureRenderer.java",
+        "cosmetic/render/CatCosmeticsModel.java",
+        "client/CrystalClient.java"
+      ],
+      "bands": [
+        "pre-matrix",
+        "pre-world"
+      ],
+      "implemented": false
+    },
+    {
+      "id": "misc-api-renames",
+      "area": "misc",
+      "summary": "Assorted single-call renames: keybind category, tick delta, screenshot, key polling, texture ctor, render pipelines.",
+      "introduced": "1.21.9",
+      "lastAbsent": "1.21.8",
+      "newApi": [
+        "KeyBinding.Category",
+        "RenderTickCounter.getDynamicDeltaTicks()",
+        "MinecraftClient.saveScreenshot(File, String, Framebuffer, int, Consumer)",
+        "InputUtil.isKeyPressed(Window, int)",
+        "NativeImageBackedTexture(Supplier<String>, NativeImage)"
+      ],
+      "oldApi": [
+        "KeyBinding category string",
+        "RenderTickCounter.getTickDelta(boolean)",
+        "MinecraftClient.saveScreenshot(File, String, int, Consumer)",
+        "InputUtil.isKeyPressed(long, int)",
+        "NativeImageBackedTexture(NativeImage)"
+      ],
+      "affectedFiles": [
+        "client/CrystalClient.java",
+        "gui/ClickGui.java",
+        "assets/Assets.java",
+        "assets/AssetRegistry.java"
+      ],
+      "bands": [
+        "pre-matrix",
+        "pre-world"
+      ],
+      "implemented": false
+    }
+  ]
+}

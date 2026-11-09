@@ -1,7 +1,94 @@
-plugins {
-    id 'fabric-loom' version "${loom_version}"
-    id 'java'
+import groovy.json.JsonSlurper
+
+// ---------------------------------------------------------------------------------------
+// Multi-version build (Phase 9). The target Minecraft version is read from the generated
+// inventory (build-system/versions.json) so the mapping scheme, Loom plugin, Java toolchain
+// and Fabric API coordinate can never drift from upstream metadata. Select a target with
+// -PmcVersion=<x>; the default is inventory.primary (the fully-verified baseline).
+//
+// The version selection has to happen inside `buildscript {}` because the Loom plugin classpath
+// differs per family: 1.21.x remaps through Yarn/intermediary (standard fabric-loom), while the
+// 26.x jars ship deobfuscated under Mojang names and need the no-remap plugin instead.
+// ---------------------------------------------------------------------------------------
+buildscript {
+    def inventory = new JsonSlurper().parse(new File(rootDir, 'build-system/versions.json'))
+    def requested = gradle.startParameter.projectProperties.mcVersion ?: inventory.primary
+    def row = inventory.versions.find { it.minecraft == requested }
+    if (row == null) {
+        throw new GradleException(
+                "Unknown Minecraft version '${requested}'. Known: " +
+                        inventory.versions.collect { it.minecraft }.join(', '))
+    }
+    gradle.ext.mcRow = row
+
+    repositories {
+        maven { name = 'Fabric'; url = 'https://maven.fabricmc.net/' }
+        mavenCentral()
+    }
+    dependencies {
+        classpath "net.fabricmc:fabric-loom:${row.loomVersion}"
+    }
 }
+
+apply plugin: gradle.ext.mcRow.loomPlugin
+apply plugin: 'java'
+
+def mcRow = gradle.ext.mcRow
+def remap = mcRow.loomPlugin == 'fabric-loom'
+
+// ---------------------------------------------------------------------------------------
+// Version-specific source. A handful of API changes cannot be papered over with a call that
+// exists on both sides (the types themselves were renamed), so those call sites go through a
+// small compat facade whose implementation is compiled from a per-band source directory.
+//
+//   pre-matrix     : 1.21.1  .. 1.21.5   MatrixStack + HudRenderCallback + legacy world events
+//   pre-world      : 1.21.6  .. 1.21.8   Matrix3x2fStack + v1.hud, still legacy world events
+//   no-world-event : 1.21.9              as pre-world, but no world render event exists at all
+//   pre-layers     : 1.21.10             + typed v1.world context; old layer/sound factories
+//   modern         : 1.21.11+            RenderLayers factories + lineWidth + ui() sound
+//   mojang         : 26.x                pending the namespace layer; no directory yet
+//
+// Only one band is ever on the compile path, so the unused implementations cannot leak in.
+// ---------------------------------------------------------------------------------------
+def compatBand = { String v ->
+    if (mcRow.family == 'mc-26.x') {
+        return 'mojang'
+    }
+    def target = v.tokenize('.').collect { it.isInteger() ? it.toInteger() : 0 }
+    def atLeast = { List<Integer> floor ->
+        for (int i = 0; i < 3; i++) {
+            def a = i < target.size() ? target[i] : 0
+            if (a != floor[i]) {
+                return a > floor[i]
+            }
+        }
+        return true
+    }
+    if (!atLeast([1, 21, 6])) {
+        return 'pre-matrix'
+    }
+    if (!atLeast([1, 21, 9])) {
+        return 'pre-world'
+    }
+    if (!atLeast([1, 21, 10])) {
+        return 'no-world-event'
+    }
+    if (!atLeast([1, 21, 11])) {
+        return 'pre-layers'
+    }
+    return 'modern'
+}(mcRow.minecraft)
+def compatDir = file("src/versioned/${compatBand}/java")
+if (compatDir.exists()) {
+    sourceSets.main.java.srcDir compatDir
+} else {
+    logger.lifecycle("logvex: no compat source for band '${compatBand}' " +
+            "(expected ${compatDir}); the namespace layer is still pending")
+}
+
+def inventory = new groovy.json.JsonSlurper().parse(file('build-system/versions.json'))
+def inventoryRange = inventory.range
+def inventoryPrimary = inventory.primary
 
 group = project.maven_group
 
@@ -9,17 +96,24 @@ base {
     archivesName = project.archives_base_name
 }
 
-version = "${project.minecraft_version}-${project.mod_version ?: 'dev'}"
+version = "${mcRow.minecraft}-${project.mod_version ?: 'dev'}"
 
 repositories {
     mavenCentral()
 }
 
 dependencies {
-    minecraft "com.mojang:minecraft:${project.minecraft_version}"
-    mappings "net.fabricmc:yarn:${project.yarn_mappings}:v2"
-    modImplementation "net.fabricmc:fabric-loader:${project.loader_version}"
-    modImplementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_version}"
+    minecraft "com.mojang:minecraft:${mcRow.minecraft}"
+    if (remap) {
+        mappings mcRow.mappings
+        modImplementation "net.fabricmc:fabric-loader:${mcRow.loader}"
+        modImplementation "net.fabricmc.fabric-api:fabric-api:${mcRow.fabricApi}"
+    } else {
+        // No-remap mode: the 26.x jar is already named, so there is nothing to remap and the
+        // Fabric dependencies are ordinary compile/runtime dependencies.
+        implementation "net.fabricmc:fabric-loader:${mcRow.loader}"
+        implementation "net.fabricmc.fabric-api:fabric-api:${mcRow.fabricApi}"
+    }
 
     testImplementation platform(libs.junit.bom)
     testImplementation libs.junit.jupiter
@@ -31,14 +125,14 @@ dependencies {
 
 java {
     toolchain {
-        languageVersion = JavaLanguageVersion.of(project.java_version as int)
+        languageVersion = JavaLanguageVersion.of(mcRow.java as int)
     }
     withSourcesJar()
 }
 
 tasks.withType(JavaCompile).configureEach {
     options.encoding = 'UTF-8'
-    options.release = project.java_version as int
+    options.release = mcRow.java as int
     options.compilerArgs += ['-Xlint:deprecation', '-Xlint:unchecked']
 }
 
@@ -54,14 +148,14 @@ tasks.named('test', Test) {
 
 processResources {
     inputs.property 'version', project.version
-    inputs.property 'loader_version', project.loader_version
-    inputs.property 'minecraft_version', project.minecraft_version
+    inputs.property 'loader_version', mcRow.loader
+    inputs.property 'minecraft_version', mcRow.minecraft
 
     filesMatching('fabric.mod.json') {
         expand(
                 'version': project.version,
-                'loader_version': project.loader_version,
-                'minecraft_version': project.minecraft_version
+                'loader_version': mcRow.loader,
+                'minecraft_version': mcRow.minecraft
         )
     }
 }
@@ -81,5 +175,52 @@ tasks.matching { it.name == 'runClient' }.configureEach {
     }
     if (project.hasProperty('shots')) {
         jvmArgs "-Dlogvex.smoke.shots=${project.property('shots')}"
+    }
+}
+
+// ---------------------------------------------------------------------------------------
+// Phase 9 version-range tasks.
+// ---------------------------------------------------------------------------------------
+
+// Lists every Minecraft version the build can target, from the generated inventory.
+tasks.register('versions') {
+    group = 'logvex'
+    description = 'List the Minecraft versions this build can target.'
+    doLast {
+        println "Minecraft range ${inventoryRange.min} .. ${inventoryRange.max} (default ${inventoryPrimary})"
+        def inv = new groovy.json.JsonSlurper().parse(file('build-system/versions.json'))
+        inv.versions.each { v ->
+            def marker = v.minecraft == inventoryPrimary ? '*' : ' '
+            println "  ${marker} ${v.minecraft.padRight(9)} ${v.family.padRight(10)} java ${v.java}  ${v.loomPlugin}"
+        }
+    }
+}
+
+// Fails if versions.json / compatibility-manifest.json are stale relative to upstream metadata
+// and the breaking-change register. Wired into `check` via -PverifyMetadata so CI cannot drift.
+// The inventory check needs network; the manifest check is offline.
+def checkInventory = tasks.register('checkInventory', Exec) {
+    group = 'logvex'
+    description = 'Fail if build-system/versions.json is stale vs upstream metadata.'
+    commandLine 'python3', 'build-system/generate_inventory.py', '--check'
+}
+
+def checkManifest = tasks.register('checkManifest', Exec) {
+    group = 'logvex'
+    description = 'Fail if build-system/compatibility-manifest.json is stale.'
+    commandLine 'python3', 'build-system/generate_manifest.py', '--check'
+}
+
+tasks.register('verifyVersionMetadata') {
+    group = 'logvex'
+    description = 'Verify the version inventory and compatibility manifest are current.'
+    dependsOn checkInventory, checkManifest
+}
+
+// Only meaningful where python3 and network are available; keep it out of the default `check`
+// graph unless explicitly requested so an offline build still succeeds.
+tasks.matching { it.name == 'check' }.configureEach {
+    if (project.hasProperty('verifyMetadata')) {
+        dependsOn 'verifyVersionMetadata'
     }
 }

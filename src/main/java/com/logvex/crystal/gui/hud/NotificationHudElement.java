@@ -1,5 +1,7 @@
 package com.logvex.crystal.gui.hud;
 
+import com.logvex.crystal.compat.Compat;
+
 import com.logvex.crystal.client.CrystalClient;
 import com.logvex.crystal.gui.HudElement;
 import com.logvex.crystal.notification.NotificationLayout;
@@ -82,17 +84,17 @@ public final class NotificationHudElement implements HudElement {
             int rowY = NotificationLayout.rowY(position, screenHeight, index, height, gap, margin);
 
             var matrices = context.getMatrices();
-            matrices.pushMatrix();
+            Compat.matrixPush(matrices);
             try {
                 if (scale != 1f) {
-                    matrices.translate(rowX, rowY);
-                    matrices.scale(scale, scale);
-                    matrices.translate(-rowX, -rowY);
+                    Compat.matrixTranslate(matrices, rowX, rowY);
+                    Compat.matrixScale(matrices, scale);
+                    Compat.matrixTranslate(matrices, -rowX, -rowY);
                 }
                 drawRow(context, client, palette, notification, alpha, levelColor,
                         rowX, rowY, unscaledWidth, rowHeight);
             } finally {
-                matrices.popMatrix();
+                Compat.matrixPop(matrices);
             }
             index++;
         }
