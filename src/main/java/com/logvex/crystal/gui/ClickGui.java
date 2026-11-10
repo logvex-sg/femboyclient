@@ -24,7 +24,6 @@ import com.logvex.crystal.theme.ThemeManager;
 import com.logvex.crystal.theme.ThemePreset;
 import com.logvex.crystal.theme.ThemeVariant;
 import com.logvex.crystal.util.Animator;
-import com.logvex.crystal.util.BestEffort;
 import com.logvex.crystal.util.ColorUtil;
 import com.logvex.crystal.util.KeyNames;
 import java.io.IOException;
@@ -182,16 +181,6 @@ public final class ClickGui extends Screen {
                     ColorUtil.scaleAlpha(gradient.topColor(), wash),
                     ColorUtil.scaleAlpha(gradient.bottomColor(), wash));
         }
-        if (theme.settings().blur && !theme.settings().reducedMotion) {
-            try {
-                context.applyBlur();
-            } catch (Throwable t) {
-                // Blur is best-effort; some pipelines do not support it. Report once so a
-                // persistently unsupported blur is visible, then stop retrying the log.
-                BestEffort.report("gui-blur", "ClickGUI blur", t);
-            }
-        }
-
         // Everything below lays out in virtual coordinates so the UI-scale setting can
         // resize the whole interface without touching a single layout constant.
         float scale = uiScale();
@@ -1434,6 +1423,19 @@ public final class ClickGui extends Screen {
 
     private static boolean inRect(double mx, double my, int x, int y, int w, int h) {
         return mx >= x && mx <= x + w && my >= y && my <= y + h;
+    }
+
+    /**
+     * Overrides vanilla's single backdrop blur so the ClickGUI's own "Blur" appearance setting
+     * decides whether it happens. Calling {@code DrawContext.applyBlur()} again from
+     * {@link #render} would throw {@code IllegalStateException: Can only blur once per frame},
+     * because {@code Screen.renderBackground} has already blurred this frame.
+     */
+    @Override
+    protected void applyBlur(DrawContext context) {
+        if (theme.settings().blur && !theme.settings().reducedMotion) {
+            super.applyBlur(context);
+        }
     }
 
     @Override
