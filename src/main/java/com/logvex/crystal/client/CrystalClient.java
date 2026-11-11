@@ -1448,9 +1448,39 @@ public final class CrystalClient implements ClientModInitializer {
                 if (smokeTick < 960) {
                     return;
                 }
-                // Assert the whole sweep left the error log empty. This is the check the
-                // title-screen smoke cannot make: it proves the modules' in-world tick bodies
-                // actually execute without throwing.
+                // Coexistence: enable everything that CAN be enabled together (declared conflicts
+                // and unmet dependencies exclude the rest) and tick the whole set against the live
+                // world. This is the module-conflict test the isolated sweep cannot give: modules
+                // that contend for the same inputs - the shared inventory transaction manager, the
+                // action coordinator, key state - run simultaneously. A module that fights another
+                // for a click or an input records a failure, which stage 23 then asserts against.
+                int on = 0;
+                int refused = 0;
+                for (var module : modules.all()) {
+                    if (module.isAlwaysEnabled() || module.isEnabled()) {
+                        on++;
+                        continue;
+                    }
+                    if (module.enable(modules)) {
+                        on++;
+                    } else {
+                        refused++;
+                    }
+                }
+                for (int i = 0; i < 40; i++) {
+                    modules.tickAll();
+                }
+                LOG.info("LOGVEX CRYSTAL in-world coexistence: {} enabled together, {} refused (conflict/dependency)",
+                        on, refused);
+                smokeStage++;
+            }
+            case 23 -> {
+                if (smokeTick < 1020) {
+                    return;
+                }
+                // Assert neither the isolated sweep nor the coexistence run left the error log
+                // dirty. This is the check the title-screen smoke cannot make: it proves the
+                // modules' in-world tick bodies execute - alone and together - without throwing.
                 int recorded = errors().totalRecorded();
                 LOG.info("LOGVEX CRYSTAL in-world modules ran ({} error(s) recorded)", recorded);
                 require(recorded == 0, "world-dependent modules recorded " + recorded
