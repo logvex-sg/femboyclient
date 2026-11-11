@@ -105,6 +105,7 @@ public final class WorldInfoModule extends Module {
             if (!props.isEmpty()) {
                 lines.add("  " + props);
             }
+            lines.add("  " + resistanceLine(client, block, state));
             return lines;
         }
         Entity entity = WorldInfo.targetEntity(client);
@@ -153,6 +154,15 @@ public final class WorldInfoModule extends Module {
     private static String propertyValue(BlockState state, Property property) {
         Comparable<?> value = (Comparable<?>) state.get(property);
         return property.name(value);
+    }
+
+    /** Blast resistance and hardness of the targeted block, so mining/explosion cost is visible. */
+    static String resistanceLine(MinecraftClient client, BlockPos pos, BlockState state) {
+        float resistance = state.getBlock().getBlastResistance();
+        float hardness = state.getHardness(client.world, pos);
+        String hardnessText = hardness < 0 ? "unbreakable"
+                : String.format(java.util.Locale.ROOT, "%.1f", hardness);
+        return String.format(java.util.Locale.ROOT, "res %.1f \u00b7 hardness %s", resistance, hardnessText);
     }
 
     private static List<String> chunkLines(MinecraftClient client) {

@@ -124,6 +124,28 @@ class BlueprintLibraryTest {
     }
 
     @Test
+    void layerPreviewKeepsOnlyTheRequestedWorldLayer() {
+        BlueprintLibrary library = new BlueprintLibrary();
+        library.addSchematic(Schematic.of("stack", List.of(
+                new Schematic.Block(0, 0, 0, "minecraft:stone"),
+                new Schematic.Block(0, 1, 0, "minecraft:stone"),
+                new Schematic.Block(0, 2, 0, "minecraft:stone"))));
+        BlueprintLibrary.Placement placement = library.place("stack", 0, 64, 0);
+
+        List<BlueprintLibrary.PreviewBlock> all = library.previewBlocks(placement, 0, 0, 128, 128);
+        assertEquals(3, all.size());
+
+        List<BlueprintLibrary.PreviewBlock> layer65 =
+                library.previewBlocks(placement, 0, 0, 128, 128, 65);
+        assertEquals(1, layer65.size());
+        assertEquals(65, layer65.get(0).y());
+
+        // LAYER_ALL restores the full preview.
+        assertEquals(3, library.previewBlocks(placement, 0, 0, 128, 128,
+                BlueprintLibrary.LAYER_ALL).size());
+    }
+
+    @Test
     void plannedMaterialsSumVisiblePlacementsOnly() {
         BlueprintLibrary library = library();
         BlueprintLibrary.Placement a = library.place("rod", 0, 0, 0);

@@ -38,6 +38,7 @@ public final class BuildPlannerModule extends Module implements WorldEspProvider
     private final BooleanSetting grid = add("Grid", "Show a construction grid and axis guides around the player.", false);
     private final IntSetting gridSpacing = add("GridSpacing", "Construction grid spacing in blocks.", 8, 1, 64);
     private final IntSetting gridRadius = add("GridRadius", "Construction grid radius in blocks.", 32, 4, 128);
+    private final IntSetting layer = add("Layer", "Show only this layer above the first placement's base (-1 shows all).", -1, -1, 64);
 
     private final UpdateClock clock = new UpdateClock(500);
     // Resolved lazily: ConfigPaths touches the Fabric loader, which is absent in unit tests.
@@ -78,6 +79,36 @@ public final class BuildPlannerModule extends Module implements WorldEspProvider
     /** Whether the construction grid overlay is on. */
     public boolean gridVisible() {
         return grid.value();
+    }
+
+    /**
+     * The world Y layer to preview, or {@link BlueprintLibrary#LAYER_ALL}. The setting is an
+     * offset above the first placement's base; {@code -1} means every layer.
+     */
+    private int resolveLayer() {
+        int offset = layer.value();
+        if (offset < 0 || library.placements().isEmpty()) {
+            return BlueprintLibrary.LAYER_ALL;
+        }
+        return library.placements().get(0).y() + offset;
+    }
+
+    /** Cycles the single-layer preview through the plan, returning a description of the new layer. */
+    public String cycleLayer() {
+        ensureLoaded();
+        int maxOffset = 0;
+        for (BlueprintLibrary.Placement placement : library.placements()) {
+            Schematic schematic = library.schematic(placement.schematicName()).orElse(null);
+            if (schematic != null) {
+                maxOffset = Math.max(maxOffset, schematic.sizeY());
+            }
+        }
+        int next = layer.value() + 1;
+        if (next > maxOffset) {
+            next = -1;
+        }
+        layer.set(next);
+        return next < 0 ? "all layers" : "layer " + next;
     }
 
     private void ensureLoaded() {
@@ -153,12 +184,13 @@ public final class BuildPlannerModule extends Module implements WorldEspProvider
         if (clock.ready()) {
             cached = new ArrayList<>();
             int budget = maxBlocks.value();
+            int onlyLayer = resolveLayer();
             for (BlueprintLibrary.Placement placement : library.placements()) {
                 if (budget <= 0) {
                     break;
                 }
                 List<BlueprintLibrary.PreviewBlock> slice =
-                        library.previewBlocks(placement, centerX, centerZ, radius.value(), budget);
+                        library.previewBlocks(placement, centerX, centerZ, radius.value(), budget, onlyLayer);
                 cached.addAll(slice);
                 budget -= slice.size();
             }

@@ -42,6 +42,13 @@ module/world/BuildPlannerModule   the module that owns the library and exposes t
   `MAX_LINES`) and the two axis guides through a placement's origin; the **Construction grid**
   tool toggles the overlay, which the planner emits as thin world boxes each frame behind the
   same `UpdateClock` as the block preview.
+* **Multi-layer schematic viewer** — `BlueprintLibrary.previewBlocks(..., onlyLayerY)` restricts
+  the preview to one world Y layer; `LAYER_ALL` (the default) keeps the whole build. The planner's
+  `Layer` setting is an offset above the first placement's base, and the **Layer preview** tool
+  cycles it through the plan (all → layer 0 → … → top → all).
+* **Block resistance / hardness** — the world-utilities target readout reports the targeted
+  block's blast resistance and hardness (`WorldInfoModule.resistanceLine`), so mining and blast
+  cost is visible.
 
 ## World utilities
 

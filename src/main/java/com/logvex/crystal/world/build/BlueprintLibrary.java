@@ -305,6 +305,20 @@ public final class BlueprintLibrary {
      */
     public List<PreviewBlock> previewBlocks(Placement placement, int centerX, int centerZ,
                                             int radius, int limit) {
+        return previewBlocks(placement, centerX, centerZ, radius, limit, LAYER_ALL);
+    }
+
+    /** Sentinel layer value meaning "every layer". */
+    public static final int LAYER_ALL = Integer.MIN_VALUE;
+
+    /**
+     * As {@link #previewBlocks(Placement, int, int, int, int)} but restricted to one world
+     * Y layer when {@code onlyLayerY} is not {@link #LAYER_ALL}. This is the multi-layer viewer:
+     * a builder steps a single layer at a time without the whole build occluding the view. The
+     * limit is applied after the layer filter, so a thin slice still fills the budget.
+     */
+    public List<PreviewBlock> previewBlocks(Placement placement, int centerX, int centerZ,
+                                            int radius, int limit, int onlyLayerY) {
         if (placement == null || !placement.visible()) {
             return List.of();
         }
@@ -318,6 +332,10 @@ public final class BlueprintLibrary {
         long radiusSq = (long) radius * radius;
         List<PreviewBlock> result = new ArrayList<>();
         for (Schematic.Block block : schematic.blocks()) {
+            int wy = originY + block.y();
+            if (onlyLayerY != LAYER_ALL && wy != onlyLayerY) {
+                continue;
+            }
             int wx = originX + block.x();
             int wz = originZ + block.z();
             long dx = wx - centerX;
@@ -325,7 +343,7 @@ public final class BlueprintLibrary {
             if (dx * dx + dz * dz > radiusSq) {
                 continue;
             }
-            result.add(new PreviewBlock(wx, originY + block.y(), wz, block.itemId()));
+            result.add(new PreviewBlock(wx, wy, wz, block.itemId()));
             if (result.size() >= limit) {
                 break;
             }

@@ -179,6 +179,15 @@ public final class WorldToolsScreen extends Screen {
                     boolean on = module.toggleGrid();
                     return "construction grid " + (on ? "on" : "off");
                 }));
+        tools.add(new Tool("Layer preview", Area.BUILD,
+                "Cycle the schematic preview through single layers (multi-layer viewer).",
+                () -> {
+                    var module = planner();
+                    if (module == null) {
+                        return "planner unavailable";
+                    }
+                    return "preview " + module.cycleLayer();
+                }));
         tools.add(new Tool("Missing materials", Area.BUILD,
                 "Report the materials still needed for the plan.",
                 () -> {
