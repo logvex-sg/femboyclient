@@ -138,13 +138,6 @@ public final class CrystalClient implements ClientModInitializer {
     private com.logvex.crystal.api.ApiRegistry apiRegistry;
     private com.logvex.crystal.extension.ExtensionManager extensionManager;
     private com.logvex.crystal.extension.ExtensionPreferences extensionPreferences;
-    /**
-     * The optional features this build carries, discovered from {@code logvex-features.txt}. The
-     * standard build carries none; the Overseer build carries the administration feature. The
-     * core never names a feature class, so the two editions stay genuinely independent.
-     */
-    private com.logvex.crystal.variant.FeatureRegistry features;
-    private com.logvex.crystal.variant.Variant variant = com.logvex.crystal.variant.Variant.STANDARD;
 
     // ---- Phase 7: optional mini-AI (crash intelligence, local model, reports) ----
     /** The shared mini-AI preferences, persisted to {@code ai.json}. */
@@ -199,13 +192,26 @@ public final class CrystalClient implements ClientModInitializer {
     /** True while reading config from disk, so loading does not immediately re-mark it dirty. */
     private boolean loadingConfig;
 
+    /**
+     * Opt-in in-world driver: {@code -Dlogvex.smoke.world=<saveName>} joins that singleplayer
+     * save once the GUI stages are done, then runs the world-dependent checks. The world stages
+     * exist because the default smoke sequence runs on the title screen with no world loaded, so
+     * nothing that reads the world (combat, movement, block scans, ESP collection) is ever
+     * exercised. Requires the save to already exist under {@code run/saves/<saveName>}.
+     */
+    private static final String SMOKE_WORLD = System.getProperty("logvex.smoke.world", "");
+
     /** Opt-in headless driver: {@code -Dlogvex.smoke=true -Dlogvex.smoke.ticks=N}. */
     private static final boolean SMOKE = Boolean.getBoolean("logvex.smoke");
-    private static final int SMOKE_TICKS = Integer.getInteger("logvex.smoke.ticks", 560);
+    // A world join loads chunks asynchronously, so it needs a much larger tick budget than the
+    // title-screen sequence.
+    private static final int SMOKE_TICKS = Integer.getInteger("logvex.smoke.ticks",
+            SMOKE_WORLD.isEmpty() ? 560 : 2000);
     /** Optional directory for dev screenshots of the smoke stages. */
     private static final String SHOT_DIR = System.getProperty("logvex.smoke.shots", "");
     private int smokeTick;
     private int smokeStage;
+    private boolean smokeFailed;
 
     /** Saves a screenshot of the current framebuffer when the dev shot directory is set. */
     private void shot(String name) {
@@ -387,7 +393,6 @@ public final class CrystalClient implements ClientModInitializer {
         registerKeybind();
         registerCosmetics();
         registerCallbacks();
-        bootstrapFeatures();
 
         // Flush any pending save when the client stops normally, so a change made in the
         // last moments before quitting is not lost to the debounce window.
@@ -407,42 +412,6 @@ public final class CrystalClient implements ClientModInitializer {
     }
 
     /**
-     * Discovers and starts the optional features this build carries.
-     *
-     * <p>The core does not know what a feature is; it reads the class names the build declared in
-     * {@code logvex-features.txt} and starts whatever is there. In the standard build the list is
-     * empty, so this is a single no-op call. In the Overseer build it starts the administration
-     * feature, which owns the remote controller and the fleet screens. The variant reported to the
-     * UI is derived from what actually loaded, so the two can never disagree.
-     */
-    private void bootstrapFeatures() {
-        features = com.logvex.crystal.variant.FeatureRegistry.discover();
-        variant = features.variant();
-        com.logvex.crystal.variant.FeatureHost host = new com.logvex.crystal.variant.ClientFeatureHost(this, variant);
-        for (com.logvex.crystal.variant.ClientFeature feature : features.all()) {
-            try {
-                feature.start(host);
-                LOG.info("Feature '{}' ({}) started", feature.id(), feature.displayName());
-            } catch (Throwable t) {
-                LOG.error("Feature '{}' failed to start; continuing without it", feature.id(), t);
-            }
-        }
-        if (!features.isEmpty()) {
-            LOG.info("LOGVEX CRYSTAL variant: {} ({} feature(s))", variant.title(), features.all().size());
-        }
-    }
-
-    /** The optional features this build carries (empty in the standard build). */
-    public com.logvex.crystal.variant.FeatureRegistry features() {
-        return features;
-    }
-
-    /** Which build is running, derived from the features that loaded. */
-    public com.logvex.crystal.variant.Variant variant() {
-        return variant;
-    }
-
-    /**
      * Normal shutdown: stop background workers and flush a pending autosave. Runs once on the
      * client thread before the game exits.
      */
@@ -457,19 +426,6 @@ public final class CrystalClient implements ClientModInitializer {
             modules.shutdownAll();
         } catch (Throwable t) {
             LOG.warn("Module shutdown failed", t);
-        }
-        try {
-            if (features != null) {
-                for (com.logvex.crystal.variant.ClientFeature feature : features.all()) {
-                    try {
-                        feature.stop();
-                    } catch (Throwable t) {
-                        LOG.warn("Feature '{}' stop failed", feature.id(), t);
-                    }
-                }
-            }
-        } catch (Throwable t) {
-            LOG.warn("Feature shutdown failed", t);
         }
         try {
             if (extensionManager != null) {
@@ -952,7 +908,6 @@ public final class CrystalClient implements ClientModInitializer {
             tickAi(client);
             tickCommandCenter();
             automation.tick(automationContext, System.currentTimeMillis());
-            tickFeatures();
             navigation.tick(client, notifications);
             notifications.prune();
             cosmetics.tick(client);
@@ -971,24 +926,15 @@ public final class CrystalClient implements ClientModInitializer {
                 runSmokeStep(client);
             }
         } catch (Throwable t) {
-            LOG.error("Uncaught error in client tick", t);
-        }
-    }
-
-    /**
-     * Ticks each optional feature. A feature that throws is logged and left in place; its failure
-     * must not stop the others or the rest of the client tick.
-     */
-    private void tickFeatures() {
-        if (features == null) {
-            return;
-        }
-        for (com.logvex.crystal.variant.ClientFeature feature : features.all()) {
-            try {
-                feature.tick();
-            } catch (Throwable t) {
-                LOG.error("Feature '{}' tick failed", feature.id(), t);
+            if (SMOKE && !smokeFailed) {
+                // Fail fast: a failed smoke stage would otherwise re-throw every tick and bury
+                // the real cause under thousands of copies. Log the first failure, then stop.
+                smokeFailed = true;
+                LOG.error("LOGVEX CRYSTAL smoke FAILED at stage {} (tick {})", smokeStage, smokeTick, t);
+                client.scheduleStop();
+                return;
             }
+            LOG.error("Uncaught error in client tick", t);
         }
     }
 
@@ -1103,6 +1049,11 @@ public final class CrystalClient implements ClientModInitializer {
                 for (String esp : new String[]{"EntityEsp", "CrystalEsp", "StorageEsp", "HoleEsp"}) {
                     var module = modules.byName(esp);
                     require(module != null, "ESP module not registered: " + esp);
+                    // Normalise first: a previous run may have left the module enabled on disk,
+                    // so a bare toggle would disable rather than enable it.
+                    if (module.isEnabled()) {
+                        module.disable();
+                    }
                     module.toggle(modules);
                     require(module.isEnabled(), esp + " did not enable");
                     module.toggle(modules);
@@ -1434,6 +1385,128 @@ public final class CrystalClient implements ClientModInitializer {
                 require(!diagnostics.toggleDebugMode(), "debug mode did not toggle off");
                 LOG.info("LOGVEX CRYSTAL diagnostics OK ({} line(s), {} cache counter(s))",
                         report.lines().size(), diagnostics.caches().size());
+                smokeStage++;
+            }
+            case 19 -> {
+                if (smokeTick < 560) {
+                    return;
+                }
+                if (SMOKE_WORLD.isEmpty()) {
+                    // No world requested: the GUI sequence is complete, so finish.
+                    LOG.info("LOGVEX CRYSTAL smoke OK after {} ticks ({} modules)", smokeTick, modules.size());
+                    client.scheduleStop();
+                    return;
+                }
+                // Join the pre-generated singleplayer save. The join is asynchronous (the
+                // integrated server boots and streams chunks), so this stage only kicks it off;
+                // stage 20 waits for the player and world to actually appear.
+                LOG.info("LOGVEX CRYSTAL joining world '{}'", SMOKE_WORLD);
+                client.createIntegratedServerLoader().start(SMOKE_WORLD, () -> {});
+                smokeStage++;
+            }
+            case 20 -> {
+                if (client.world == null || client.player == null) {
+                    if (smokeTick > SMOKE_TICKS - 200) {
+                        throw new IllegalStateException(
+                                "SMOKE FAILURE: world '" + SMOKE_WORLD + "' never finished loading");
+                    }
+                    return;
+                }
+                // The player and world exist now. The world-query snapshot must see the loaded
+                // block entities, and the world tick services must be running.
+                require(client.world.getRegistryKey() != null, "world has no registry key");
+                require(client.player.getInventory() != null, "player has no inventory");
+                com.logvex.crystal.world.WorldQuery.get().tick(client);
+                LOG.info("LOGVEX CRYSTAL in-world: dimension {} at {} {} {} ({} block entities)",
+                        client.world.getRegistryKey().getValue(),
+                        (int) client.player.getX(), (int) client.player.getY(), (int) client.player.getZ(),
+                        com.logvex.crystal.world.WorldQuery.get().size());
+                shot("03-in-world");
+                smokeStage++;
+            }
+            case 21 -> {
+                if (smokeTick < 900) {
+                    return;
+                }
+                // Sweep EVERY module in isolation: enable it, tick its in-world body a few
+                // times, then disable it. Enabling one at a time sidesteps conflicts, so each
+                // module gets real in-world coverage rather than the handful a single combined
+                // enable set would reach. Ticks are exception-isolated, so a throwing module
+                // records a failure instead of crashing - which stage 22 then asserts against.
+                int exercised = 0;
+                int skipped = 0;
+                for (var module : modules.all()) {
+                    if (module.isAlwaysEnabled()) {
+                        // Always-on modules (HUD/status) cannot be toggled, but still tick.
+                        for (int i = 0; i < 3; i++) {
+                            module.tickSafely();
+                        }
+                        exercised++;
+                        continue;
+                    }
+                    if (!module.enable(modules)) {
+                        skipped++;
+                        continue;
+                    }
+                    for (int i = 0; i < 5; i++) {
+                        module.tickSafely();
+                    }
+                    module.disable();
+                    exercised++;
+                }
+                LOG.info("LOGVEX CRYSTAL in-world module sweep: {} exercised, {} skipped (conflict/dependency)",
+                        exercised, skipped);
+                smokeStage++;
+            }
+            case 22 -> {
+                if (smokeTick < 960) {
+                    return;
+                }
+                // Coexistence: enable everything that CAN be enabled together (declared conflicts
+                // and unmet dependencies exclude the rest) and tick the whole set against the live
+                // world. This is the module-conflict test the isolated sweep cannot give: modules
+                // that contend for the same inputs - the shared inventory transaction manager, the
+                // action coordinator, key state - run simultaneously. A module that fights another
+                // for a click or an input records a failure, which stage 23 then asserts against.
+                int on = 0;
+                int refused = 0;
+                java.util.List<com.logvex.crystal.module.Module> turnedOn = new java.util.ArrayList<>();
+                for (var module : modules.all()) {
+                    if (module.isAlwaysEnabled() || module.isEnabled()) {
+                        on++;
+                        continue;
+                    }
+                    if (module.enable(modules)) {
+                        turnedOn.add(module);
+                        on++;
+                    } else {
+                        refused++;
+                    }
+                }
+                for (int i = 0; i < 40; i++) {
+                    modules.tickAll();
+                }
+                // Restore the pre-stage state so the coexistence run does not persist an
+                // all-modules-enabled configuration on shutdown.
+                for (var module : turnedOn) {
+                    module.disable();
+                }
+                LOG.info("LOGVEX CRYSTAL in-world coexistence: {} enabled together, {} refused (conflict/dependency)",
+                        on, refused);
+                smokeStage++;
+            }
+            case 23 -> {
+                if (smokeTick < 1020) {
+                    return;
+                }
+                // Assert neither the isolated sweep nor the coexistence run left the error log
+                // dirty. This is the check the title-screen smoke cannot make: it proves the
+                // modules' in-world tick bodies execute - alone and together - without throwing.
+                int recorded = errors().totalRecorded();
+                LOG.info("LOGVEX CRYSTAL in-world modules ran ({} error(s) recorded)", recorded);
+                require(recorded == 0, "world-dependent modules recorded " + recorded
+                        + " failure(s): " + errors().latest());
+                shot("04-in-world-modules");
                 smokeStage++;
             }
             default -> {

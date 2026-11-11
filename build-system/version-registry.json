@@ -10,8 +10,7 @@
   },
   "primary": "1.21.11",
   "editions": [
-    "standard",
-    "overseer"
+    "standard"
   ],
   "statusVocabulary": {
     "supportStatus": [
