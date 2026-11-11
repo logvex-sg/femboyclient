@@ -129,6 +129,11 @@ public final class DiagnosticsReport {
         return out;
     }
 
+    /** True when the performance intelligence found nothing to report. */
+    public boolean findingsAreClean() {
+        return performance == null || performance.findings().isEmpty();
+    }
+
     /** The report as one newline-joined string, for export to a file. */
     public String text() {
         return String.join("\n", lines()) + "\n";

@@ -90,6 +90,7 @@ public final class CommandCenterScreen extends Screen {
     private int notificationScroll;
     private int quickScroll;
     private int configScroll;
+    private int diagnosticsScroll;
 
     // Selection state.
     private Module selectedModule;
@@ -201,6 +202,7 @@ public final class CommandCenterScreen extends Screen {
                 case AI -> renderAi(context, palette, vmx, vmy);
                 case MODULES -> renderModules(context, palette, vmx, vmy);
                 case PERFORMANCE -> renderPerformance(context, palette, vmx, vmy);
+                case DIAGNOSTICS -> renderDiagnostics(context, palette, vmx, vmy);
                 case BARITONE -> renderBaritone(context, palette, vmx, vmy);
                 case CONFIG -> renderConfig(context, palette, vmx, vmy);
                 case CRASHES -> renderCrashes(context, palette, vmx, vmy);
@@ -283,6 +285,7 @@ public final class CommandCenterScreen extends Screen {
             case AI -> "\u2728";
             case MODULES -> "\u2726";
             case PERFORMANCE -> "\u26A1";
+            case DIAGNOSTICS -> "\u2695";
             case BARITONE -> "\u2748";
             case CONFIG -> "\u2699";
             case CRASHES -> "\u2620";
@@ -1078,6 +1081,7 @@ public final class CommandCenterScreen extends Screen {
             case AI -> aiClick(vx, vy);
             case MODULES -> modulesClick(vx, vy);
             case PERFORMANCE -> performanceClick(vx, vy);
+            case DIAGNOSTICS -> diagnosticsClick(vx, vy);
             case BARITONE -> baritoneClick(vx, vy);
             case CONFIG -> configClick(vx, vy);
             case CRASHES -> crashesClick(vx, vy);
@@ -1201,6 +1205,93 @@ public final class CommandCenterScreen extends Screen {
         if (inBox(x, y, contentLeft + 102, by, 96, CommandCenterDraw.BUTTON_H)) {
             client.samplePerformanceNow();
             setStatus("Sampled performance");
+        }
+    }
+
+    // ------------------------------------------------------------------ diagnostics
+
+    /**
+     * The Diagnostics workspace: the module-health page, the error viewer, the runtime cache
+     * counters and an export button. It reads the same gathered numbers the {@code ; report}
+     * command prints, so nothing is recomputed here.
+     */
+    private void renderDiagnostics(DrawContext context, Palette palette, int mouseX, int mouseY) {
+        com.logvex.crystal.diagnostics.DiagnosticsService diagnostics = client.diagnostics();
+        CommandCenterService service = service();
+        if (diagnostics == null || service == null) {
+            context.drawTextWithShadow(textRenderer, "Diagnostics are unavailable.", contentLeft, contentTop,
+                    palette.danger());
+            return;
+        }
+        var report = diagnostics.build(service.performance());
+        int y = contentTop;
+        y = CommandCenterDraw.wrapped(context, textRenderer, contentLeft, y, contentRight - contentLeft,
+                report.summary(), report.findingsAreClean() ? palette.enabled() : palette.warning()) + 4;
+
+        List<String> lines = report.lines();
+        int rowH = 11;
+        int viewTop = y;
+        int viewBottom = contentBottom - CommandCenterDraw.BUTTON_H - 6;
+        int visible = Math.max(1, (viewBottom - viewTop) / rowH);
+        diagnosticsScroll = Math.max(0, Math.min(diagnosticsScroll, Math.max(0, lines.size() - visible)));
+        for (int i = diagnosticsScroll; i < lines.size(); i++) {
+            int lineY = viewTop + (i - diagnosticsScroll) * rowH;
+            if (lineY + rowH > viewBottom) {
+                break;
+            }
+            String line = lines.get(i);
+            int color = line.startsWith("[") ? palette.primary()
+                    : line.contains("CRITICAL") ? palette.danger()
+                    : line.contains("ATTENTION") ? palette.warning()
+                    : line.isBlank() ? palette.textDim() : palette.text();
+            context.drawTextWithShadow(textRenderer, line, contentLeft + 2, lineY, color);
+        }
+        CommandCenterDraw.scrollbar(context, palette, contentRight - 4, viewTop, viewBottom - viewTop,
+                diagnosticsScroll, lines.size(), visible);
+
+        int by = contentBottom - CommandCenterDraw.BUTTON_H;
+        int bw = 110;
+        CommandCenterDraw.button(context, textRenderer, palette, contentLeft, by, bw, "Export report", true,
+                inBox(mouseX, mouseY, contentLeft, by, bw, CommandCenterDraw.BUTTON_H), true);
+        CommandCenterDraw.button(context, textRenderer, palette, contentLeft + bw + 6, by, bw,
+                diagnostics.debugMode() ? "Debug: on" : "Debug: off", true,
+                inBox(mouseX, mouseY, contentLeft + bw + 6, by, bw, CommandCenterDraw.BUTTON_H), false);
+        CommandCenterDraw.button(context, textRenderer, palette, contentLeft + 2 * (bw + 6), by, 118,
+                "Clear errors", true,
+                inBox(mouseX, mouseY, contentLeft + 2 * (bw + 6), by, 118, CommandCenterDraw.BUTTON_H), false);
+        String count = diagnostics.reportCount() + " report(s) built";
+        context.drawTextWithShadow(textRenderer, count, contentRight - textRenderer.getWidth(count),
+                by + 5, palette.textDim());
+    }
+
+    private void diagnosticsClick(int x, int y) {
+        var diagnostics = client.diagnostics();
+        if (diagnostics == null) {
+            return;
+        }
+        int by = contentBottom - CommandCenterDraw.BUTTON_H;
+        int bw = 110;
+        if (inBox(x, y, contentLeft, by, bw, CommandCenterDraw.BUTTON_H)) {
+            var service = service();
+            var report = diagnostics.build(service == null ? null : service.performance());
+            java.nio.file.Path file = com.logvex.crystal.config.ConfigPaths.directory()
+                    .resolve("diagnostics.txt");
+            try {
+                diagnostics.export(report, file);
+                setStatus("Wrote " + file.getFileName());
+            } catch (java.io.IOException e) {
+                setStatus("Export failed: " + e.getMessage());
+            }
+            return;
+        }
+        if (inBox(x, y, contentLeft + bw + 6, by, bw, CommandCenterDraw.BUTTON_H)) {
+            boolean on = diagnostics.toggleDebugMode();
+            setStatus(on ? "Debug diagnostics on" : "Debug diagnostics off");
+            return;
+        }
+        if (inBox(x, y, contentLeft + 2 * (bw + 6), by, 118, CommandCenterDraw.BUTTON_H)) {
+            com.logvex.crystal.client.CrystalClient.errors().clear();
+            setStatus("Cleared the module error log");
         }
     }
 
@@ -1543,6 +1634,7 @@ public final class CommandCenterScreen extends Screen {
             case NOTIFICATIONS -> notificationScroll = Math.max(0, notificationScroll - delta);
             case QUICK_ACTIONS -> quickScroll = Math.max(0, quickScroll - delta);
             case CONFIG -> configScroll = Math.max(0, configScroll - delta);
+            case DIAGNOSTICS -> diagnosticsScroll = Math.max(0, diagnosticsScroll - delta);
             default -> {
             }
         }
