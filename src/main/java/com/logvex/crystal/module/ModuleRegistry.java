@@ -59,7 +59,7 @@ import com.logvex.crystal.module.render.TracersModule;
 public final class ModuleRegistry {
 
     /** Number of concrete modules registered; asserted by the registry test. */
-    public static final int EXPECTED_MODULE_COUNT = 94;
+    public static final int EXPECTED_MODULE_COUNT = 95;
 
     private ModuleRegistry() {
     }
@@ -147,6 +147,9 @@ public final class ModuleRegistry {
 
         // World interaction and building toolkit.
         manager.register(new com.logvex.crystal.module.world.BuildPlannerModule());
+
+        // Navigation and world intelligence.
+        manager.register(new com.logvex.crystal.module.world.NavigatorModule());
 
         // Automation - inventory.
         manager.register(new com.logvex.crystal.module.automation.AutoTotemAutomation());

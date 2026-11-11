@@ -98,6 +98,8 @@ All commands are local-only. Prefix `;` or `.crystal`.
 | `; automation <gui\|queue\|pause\|resume\|stop\|restock\|rules> [args]` | Automation hub control |
 | `; tools` (or `; wt`) | Open the World Tools interface |
 | `; build <list\|place\|move\|rotate\|mirror\|remove\|undo\|redo\|save\|clear\|materials>` | Blueprint planner |
+| `; nav <list\|add\|remove\|start\|stop\|pause\|resume\|progress\|history>` | Route planner and follower |
+| `; bookmark <add\|remove\|list\|death\|last>` | Coordinate bookmarks and death location |
 | `; save` / `load` / `list [category]` / `version` | Config & info |
 | `; assets [list\|reload]` | Report the asset pack, or clear the texture cache |
 
@@ -223,6 +225,14 @@ rotation/mirror, undo/redo, a build-progress tracker and a missing-material calc
 world side reports block/state/resistance, light level, chunk borders, biome, entities, time,
 weather, dimension and coordinates from the shared cached query layer. Storage inspection only
 touches inventories you can legitimately access. See [docs/world-tools.md](docs/world-tools.md).
+
+## Navigation
+
+A navigation planner and follower (`; nav`, `; bookmark`, plus the Navigator module and compass
+HUD). Waypoints gain categories, groups, notes and bookmarks; routes are saved per dimension and
+followed as a cursor over your position — progress, remaining distance, arrival and history — with
+an obstacle-aware preview over loaded blocks. It never moves the player: navigation planning and
+movement execution are separate. See [docs/navigation.md](docs/navigation.md).
 
 ## HUD
 

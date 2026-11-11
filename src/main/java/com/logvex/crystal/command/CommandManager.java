@@ -91,7 +91,7 @@ public final class CommandManager {
             "diagnostics", "conflicts", "coord", "automation", "auto", "diag", "crystal", "ac",
             "assets", "version", "ver", "extensions", "ext", "scripts", "script", "ai",
             "center", "commandcenter", "hub", "tools", "worldtools", "wt", "build", "blueprint",
-            "schematic");
+            "schematic", "nav", "navigation", "route", "routes", "bookmark", "bookmarks");
 
     /**
      * Handles a raw chat line. Returns true when the line was a Crystal command and must
@@ -203,6 +203,8 @@ public final class CommandManager {
             case "world", "worldinfo" -> world(args);
             case "tools", "worldtools", "wt" -> openWorldTools();
             case "build", "blueprint", "schematic" -> worldBuild(args);
+            case "nav", "navigation", "route", "routes" -> navigate(args);
+            case "bookmark", "bookmarks" -> bookmarkCommand(args);
             case "scan", "scanner" -> scan(args);
             case "wi", "intel", "intelligence" -> worldIntelligence(args);
             case "entities", "entity" -> entities(args);
@@ -828,6 +830,207 @@ public final class CommandManager {
     private void openWorldTools() {
         MinecraftClient.getInstance().setScreen(
                 new com.logvex.crystal.gui.WorldToolsScreen(client.theme(), client));
+    }
+
+    /**
+     * {@code ; nav <list|show|start|stop|pause|resume|progress|history|clear> [name]} - route
+     * planning and following. Following a route only tracks the player's progress; it never
+     * moves the player, so the command is safe to run at any time.
+     */
+    private void navigate(List<String> args) {
+        var routes = client.routePlans();
+        var state = client.navigation().state();
+        String sub = args.size() > 1 ? args.get(1).toLowerCase(Locale.ROOT) : "list";
+        switch (sub) {
+            case "list" -> {
+                if (routes.size() == 0) {
+                    client.notify("No routes saved. Add one with ; nav add <name> <x z> [x z ...]",
+                            NotificationLevel.INFO);
+                    return;
+                }
+                for (var route : routes.all()) {
+                    client.notify(route.name() + " \u00b7 " + route.nodes().size() + " nodes \u00b7 "
+                            + Math.round(com.logvex.crystal.navigation.RoutePlan.length(route)) + "m"
+                            + (route.dimension().isEmpty() ? "" : " \u00b7 " + route.dimension()),
+                            NotificationLevel.INFO);
+                }
+            }
+            case "add", "set" -> addRoute(args);
+            case "remove", "del", "delete", "rm" -> {
+                if (args.size() < 3) {
+                    client.notify("Usage: ; nav remove <name>", NotificationLevel.WARN);
+                    return;
+                }
+                if (routes.remove(args.get(2))) {
+                    client.saveAll();
+                    client.notify("Removed route '" + args.get(2) + "'", NotificationLevel.SUCCESS);
+                } else {
+                    client.notify("No route named '" + args.get(2) + "'", NotificationLevel.ERROR);
+                }
+            }
+            case "start", "follow" -> {
+                if (args.size() < 3) {
+                    client.notify("Usage: ; nav start <name>", NotificationLevel.WARN);
+                    return;
+                }
+                if (client.navigation().startRoute(args.get(2), MinecraftClient.getInstance())) {
+                    client.notify("Following route '" + args.get(2) + "'", NotificationLevel.SUCCESS);
+                } else {
+                    client.notify("No route named '" + args.get(2) + "' (or not in a world)",
+                            NotificationLevel.ERROR);
+                }
+            }
+            case "stop", "cancel" -> {
+                if (client.navigation().cancelRoute(MinecraftClient.getInstance())) {
+                    client.notify("Route cancelled", NotificationLevel.INFO);
+                } else {
+                    client.notify("No route is being followed", NotificationLevel.INFO);
+                }
+            }
+            case "pause" -> {
+                state.pause();
+                client.notify("Route paused", NotificationLevel.INFO);
+            }
+            case "resume" -> {
+                state.resume();
+                client.notify("Route resumed", NotificationLevel.INFO);
+            }
+            case "progress", "status", "show" -> client.notify(
+                    client.navigation().describe(MinecraftClient.getInstance()), NotificationLevel.INFO);
+            case "history" -> {
+                var history = state.history();
+                if (history.isEmpty()) {
+                    client.notify("No route history", NotificationLevel.INFO);
+                    return;
+                }
+                for (var arrival : history) {
+                    client.notify((arrival.completed() ? "\u2713 " : "\u2717 ") + arrival.routeName()
+                            + " \u00b7 " + Math.round(arrival.travelledBlocks()) + "m",
+                            NotificationLevel.INFO);
+                }
+            }
+            case "clearhistory" -> {
+                state.clearHistory();
+                client.notify("Route history cleared", NotificationLevel.SUCCESS);
+            }
+            default -> client.notify(
+                    "Usage: ; nav <list|add|remove|start|stop|pause|resume|progress|history>",
+                    NotificationLevel.WARN);
+        }
+    }
+
+    /** {@code ; nav add <name> <x z> [x z ...]} - builds a straight-leg route from coordinate pairs. */
+    private void addRoute(List<String> args) {
+        if (args.size() < 5) {
+            client.notify("Usage: ; nav add <name> <x z> [x z ...]", NotificationLevel.WARN);
+            return;
+        }
+        String name = args.get(2);
+        java.util.List<com.logvex.crystal.navigation.RoutePlan.Node> nodes = new java.util.ArrayList<>();
+        MinecraftClient mc = MinecraftClient.getInstance();
+        int y = mc.player != null ? (int) Math.floor(mc.player.getY()) : 64;
+        for (int i = 3; i + 1 < args.size(); i += 2) {
+            try {
+                int x = (int) Double.parseDouble(args.get(i));
+                int z = (int) Double.parseDouble(args.get(i + 1));
+                nodes.add(new com.logvex.crystal.navigation.RoutePlan.Node(x, y, z));
+            } catch (NumberFormatException e) {
+                client.notify("Coordinates must be numbers", NotificationLevel.ERROR);
+                return;
+            }
+        }
+        if (nodes.size() < 2) {
+            client.notify("A route needs at least two points", NotificationLevel.WARN);
+            return;
+        }
+        String dimension = mc.world != null ? mc.world.getRegistryKey().getValue().toString() : "";
+        client.routePlans().put(new com.logvex.crystal.navigation.RoutePlan.Route(name, dimension, nodes));
+        client.saveAll();
+        client.notify("Route '" + name + "' saved with " + nodes.size() + " nodes",
+                NotificationLevel.SUCCESS);
+    }
+
+    /** {@code ; bookmark <add|remove|list> [name] [x y z]} - quick bookmarks and last/death position. */
+    private void bookmarkCommand(List<String> args) {
+        var registry = client.waypointRegistry();
+        MinecraftClient mc = MinecraftClient.getInstance();
+        String sub = args.size() > 1 ? args.get(1).toLowerCase(Locale.ROOT) : "list";
+        switch (sub) {
+            case "add", "set" -> {
+                if (args.size() < 3) {
+                    client.notify("Usage: ; bookmark add <name> [x y z]", NotificationLevel.WARN);
+                    return;
+                }
+                String name = args.get(2);
+                int x;
+                int y;
+                int z;
+                if (args.size() >= 6) {
+                    try {
+                        x = (int) Double.parseDouble(args.get(3));
+                        y = (int) Double.parseDouble(args.get(4));
+                        z = (int) Double.parseDouble(args.get(5));
+                    } catch (NumberFormatException e) {
+                        client.notify("Coordinates must be numbers", NotificationLevel.ERROR);
+                        return;
+                    }
+                } else if (mc.player != null) {
+                    x = (int) Math.floor(mc.player.getX());
+                    y = (int) Math.floor(mc.player.getY());
+                    z = (int) Math.floor(mc.player.getZ());
+                } else {
+                    client.notify("Not in a world; supply coordinates", NotificationLevel.ERROR);
+                    return;
+                }
+                String dimension = mc.world != null ? mc.world.getRegistryKey().getValue().toString() : "";
+                registry.putBookmark(new com.logvex.crystal.navigation.WaypointRegistry.Bookmark(
+                        name, x, y, z, dimension));
+                client.saveAll();
+                client.notify("Bookmarked '" + name + "' at " + x + " " + y + " " + z,
+                        NotificationLevel.SUCCESS);
+            }
+            case "remove", "del", "delete", "rm" -> {
+                if (args.size() < 3) {
+                    client.notify("Usage: ; bookmark remove <name>", NotificationLevel.WARN);
+                    return;
+                }
+                if (registry.removeBookmark(args.get(2))) {
+                    client.saveAll();
+                    client.notify("Removed bookmark '" + args.get(2) + "'", NotificationLevel.SUCCESS);
+                } else {
+                    client.notify("No bookmark named '" + args.get(2) + "'", NotificationLevel.ERROR);
+                }
+            }
+            case "death" -> {
+                var death = client.navigation().deathPosition();
+                if (death == null) {
+                    client.notify("No death location recorded this session", NotificationLevel.INFO);
+                } else {
+                    client.notify("Died at " + death.x() + " " + death.y() + " " + death.z()
+                            + (death.dimension().isEmpty() ? "" : " in " + death.dimension()),
+                            NotificationLevel.INFO);
+                }
+            }
+            case "last" -> {
+                var last = client.navigation().lastPosition();
+                client.notify(last == null ? "No position recorded yet"
+                        : "Last at " + last.x() + " " + last.y() + " " + last.z(),
+                        NotificationLevel.INFO);
+            }
+            case "list" -> {
+                var marks = registry.bookmarks();
+                if (marks.isEmpty()) {
+                    client.notify("No bookmarks saved", NotificationLevel.INFO);
+                    return;
+                }
+                for (var mark : marks) {
+                    client.notify(mark.name() + " " + mark.x() + " " + mark.y() + " " + mark.z(),
+                            NotificationLevel.INFO);
+                }
+            }
+            default -> client.notify("Usage: ; bookmark <add|remove|list|death|last>",
+                    NotificationLevel.WARN);
+        }
     }
 
     /**
@@ -2538,6 +2741,8 @@ public final class CommandManager {
                 "; waypoint <add|remove|list|clear> [name] [x y z]",
                 "; baritone <status|gui|goto <x y z>|near <x y z> [r]|wp <name>|here|cancel|pause|resume|paused|set|settings>",
                 "; world | entities <list|count|search <text>> | browser",
+                "; tools <search|area> | build <list|place|move|rotate|mirror|undo|redo|materials>",
+                "; nav <list|add|remove|start|stop|pause|resume|progress|history> | bookmark <add|remove|list|death|last>",
                 "; wi <status|gui|find <text>|list|targets|ask <q>|confirm|dismiss|delete|export|import|clear>",
                 "; notifications <list|history|clear|sound|duration|scale|position|duplicates|level|test>",
                 "; context <on|off|list|add|remove|clear|cooldown>",

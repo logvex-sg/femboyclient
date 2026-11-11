@@ -33,6 +33,16 @@ public final class ConfigPaths {
         return directory().resolve("waypoints.json");
     }
 
+    /** Saved navigation routes and their history. */
+    public static Path navigation() {
+        return directory().resolve("navigation.json");
+    }
+
+    /** Waypoint organisation (categories, groups, notes) and bookmarks. */
+    public static Path waypointRegistry() {
+        return directory().resolve("waypoint-meta.json");
+    }
+
     public static Path favorites() {
         return directory().resolve("favorites.json");
     }

@@ -109,6 +109,9 @@ public final class HudManager {
         register(new com.logvex.crystal.gui.hud.IntelligenceHudElement());
         // The intelligence readout is opt-in: the WorldScanner module reveals it once it has data.
         layout.entry(com.logvex.crystal.gui.hud.IntelligenceHudElement.ID).visible = false;
+        register(new com.logvex.crystal.gui.hud.CompassHudElement());
+        // The compass readout is opt-in: the Navigator module reveals it.
+        layout.entry(com.logvex.crystal.gui.hud.CompassHudElement.ID).visible = false;
     }
 
     private static String pingText(int ping) {

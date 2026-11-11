@@ -87,6 +87,15 @@ public final class CrystalClient implements ClientModInitializer {
             new com.logvex.crystal.social.FriendList(ConfigPaths.friends());
     private final com.logvex.crystal.util.waypoint.WaypointStore waypoints =
             new com.logvex.crystal.util.waypoint.WaypointStore(ConfigPaths.waypoints());
+    /** Waypoint organisation (categories/groups/notes) and bookmarks. */
+    private final com.logvex.crystal.navigation.WaypointRegistry waypointRegistry =
+            new com.logvex.crystal.navigation.WaypointRegistry(ConfigPaths.waypointRegistry());
+    /** Saved navigation routes. */
+    private final com.logvex.crystal.navigation.RoutePlan routePlans =
+            new com.logvex.crystal.navigation.RoutePlan(ConfigPaths.navigation());
+    /** The client-facing navigation engine: route following, position history, death location. */
+    private final com.logvex.crystal.navigation.NavigationService navigation =
+            new com.logvex.crystal.navigation.NavigationService(routePlans, waypointRegistry);
     private final com.logvex.crystal.render.esp.WorldEspCollector worldEsp =
             new com.logvex.crystal.render.esp.WorldEspCollector();
     /** Entity lifecycle: spawn/despawn diffing and bounded per-entity history. */
@@ -179,7 +188,7 @@ public final class CrystalClient implements ClientModInitializer {
 
     /** Opt-in headless driver: {@code -Dlogvex.smoke=true -Dlogvex.smoke.ticks=N}. */
     private static final boolean SMOKE = Boolean.getBoolean("logvex.smoke");
-    private static final int SMOKE_TICKS = Integer.getInteger("logvex.smoke.ticks", 440);
+    private static final int SMOKE_TICKS = Integer.getInteger("logvex.smoke.ticks", 560);
     /** Optional directory for dev screenshots of the smoke stages. */
     private static final String SHOT_DIR = System.getProperty("logvex.smoke.shots", "");
     private int smokeTick;
@@ -247,6 +256,8 @@ public final class CrystalClient implements ClientModInitializer {
                 .registerReloader(AssetRegistry.ReloadListener.ID, new AssetRegistry.ReloadListener());
         friends.load();
         waypoints.load();
+        waypointRegistry.load();
+        routePlans.load();
 
         notifications = new NotificationManager();
         notificationStore = new com.logvex.crystal.notification.NotificationStore(ConfigPaths.notifications());
@@ -885,6 +896,7 @@ public final class CrystalClient implements ClientModInitializer {
             tickCommandCenter();
             automation.tick(automationContext, System.currentTimeMillis());
             tickFeatures();
+            navigation.tick(client, notifications);
             notifications.prune();
             cosmetics.tick(client);
             while (clickGuiKey.wasPressed()) {
@@ -1289,6 +1301,54 @@ public final class CrystalClient implements ClientModInitializer {
                         library.schematics().size(), library.placements().size());
                 smokeStage++;
             }
+            case 17 -> {
+                if (smokeTick < 520) {
+                    return;
+                }
+                // Navigation must be wired: the Navigator module registered, the compass HUD
+                // element present, the route store persistent, and the cursor maths correct.
+                var navigator = modules.byClass(com.logvex.crystal.module.world.NavigatorModule.class);
+                require(navigator != null, "navigator module is not registered");
+                require(hud.element("compass") != null, "compass HUD element is not registered");
+
+                var route = new com.logvex.crystal.navigation.RoutePlan.Route("smoke-route",
+                        "minecraft:overworld", java.util.List.of(
+                                new com.logvex.crystal.navigation.RoutePlan.Node(0, 64, 0),
+                                new com.logvex.crystal.navigation.RoutePlan.Node(100, 64, 0),
+                                new com.logvex.crystal.navigation.RoutePlan.Node(200, 64, 0)));
+                routePlans.put(route);
+                require(routePlans.byName("smoke-route") != null, "route was not stored");
+                require(Math.abs(com.logvex.crystal.navigation.RoutePlan.length(route) - 200.0) < 1e-6,
+                        "route length was wrong");
+
+                // The cursor maths the service uses, proven deterministically from a known point.
+                var cursor = new com.logvex.crystal.navigation.NavigationState();
+                cursor.start(route, 0, 0, 0L);
+                cursor.advance(0, 0, 4.0, 1L);
+                require(cursor.index() == 1, "route cursor did not advance");
+                require(cursor.progressAt(0, 0) > 0, "route progress did not advance");
+                cursor.cancel(100, 0, 2L);
+                require(cursor.history().size() == 1, "route history was not recorded");
+
+                waypointRegistry.setMeta("smoke", "stash", "overworld", "smoke test");
+                waypointRegistry.putBookmark(new com.logvex.crystal.navigation.WaypointRegistry.Bookmark(
+                        "smoke-bookmark", 5, 64, 5, "minecraft:overworld"));
+                require(waypointRegistry.metaOf("smoke").category().equals("stash"),
+                        "waypoint metadata was not recorded");
+                require(waypointRegistry.bookmark("smoke-bookmark") != null,
+                        "bookmark was not recorded");
+
+                // Following a route needs a player; in the headless title screen there is none,
+                // so the live follow is exercised only when a world is loaded.
+                if (client.player != null) {
+                    require(navigation.startRoute("smoke-route", client), "route did not start");
+                    require(navigation.state().active() != null, "active route was not set");
+                    navigation.cancelRoute(client);
+                }
+                LOG.info("LOGVEX CRYSTAL navigation OK ({} route(s), {} bookmark(s))",
+                        routePlans.size(), waypointRegistry.bookmarks().size());
+                smokeStage++;
+            }
             default -> {
                 if (smokeTick >= SMOKE_TICKS) {
                     LOG.info("LOGVEX CRYSTAL smoke OK after {} ticks ({} modules)", smokeTick, modules.size());
@@ -1434,6 +1494,8 @@ public final class CrystalClient implements ClientModInitializer {
             config.save();
             friends.save();
             waypoints.save();
+            waypointRegistry.save();
+            routePlans.save();
             favoritesStore.save();
             notificationStore.save(notifications.settings());
             contextStore.save(contextProfiles);
@@ -1456,6 +1518,8 @@ public final class CrystalClient implements ClientModInitializer {
             config.load();
             friends.load();
             waypoints.load();
+            waypointRegistry.load();
+            routePlans.load();
             notificationStore.loadInto(notifications.settings());
             contextStore.loadInto(contextProfiles);
             if (aiSettingsStore != null) {
@@ -1675,6 +1739,21 @@ public final class CrystalClient implements ClientModInitializer {
     /** The persisted waypoint list. */
     public com.logvex.crystal.util.waypoint.WaypointStore waypoints() {
         return waypoints;
+    }
+
+    /** Waypoint organisation (categories/groups/notes) and bookmarks. */
+    public com.logvex.crystal.navigation.WaypointRegistry waypointRegistry() {
+        return waypointRegistry;
+    }
+
+    /** Saved navigation routes. */
+    public com.logvex.crystal.navigation.RoutePlan routePlans() {
+        return routePlans;
+    }
+
+    /** The navigation engine: route following, position history and death location. */
+    public com.logvex.crystal.navigation.NavigationService navigation() {
+        return navigation;
     }
 
     /** The shared Baritone integration service (always present; availability is probed lazily). */
