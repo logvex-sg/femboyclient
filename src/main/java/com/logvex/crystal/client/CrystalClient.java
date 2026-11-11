@@ -1414,37 +1414,43 @@ public final class CrystalClient implements ClientModInitializer {
                 if (smokeTick < 900) {
                     return;
                 }
-                // Enable a representative set of world-dependent modules and let them tick for
-                // real against the loaded world. Each module's tick is exception-isolated, so a
-                // throwing module records a failure rather than crashing the client - which is
-                // exactly what the error log check below catches.
-                for (String name : new String[]{"EntityEsp", "CrystalEsp", "StorageEsp", "HoleEsp",
-                        "AutoSprint", "SafeWalk", "AutoJump", "AutoTotem+", "AutoArmor", "AutoTool+"}) {
-                    var module = modules.byName(name);
-                    if (module == null || module.isAlwaysEnabled()) {
+                // Sweep EVERY module in isolation: enable it, tick its in-world body a few
+                // times, then disable it. Enabling one at a time sidesteps conflicts, so each
+                // module gets real in-world coverage rather than the handful a single combined
+                // enable set would reach. Ticks are exception-isolated, so a throwing module
+                // records a failure instead of crashing - which stage 22 then asserts against.
+                int exercised = 0;
+                int skipped = 0;
+                for (var module : modules.all()) {
+                    if (module.isAlwaysEnabled()) {
+                        // Always-on modules (HUD/status) cannot be toggled, but still tick.
+                        for (int i = 0; i < 3; i++) {
+                            module.tickSafely();
+                        }
+                        exercised++;
                         continue;
                     }
-                    if (!module.isEnabled()) {
-                        module.enable(modules);
+                    if (!module.enable(modules)) {
+                        skipped++;
+                        continue;
                     }
-                    module.tickSafely();
+                    for (int i = 0; i < 5; i++) {
+                        module.tickSafely();
+                    }
+                    module.disable();
+                    exercised++;
                 }
+                LOG.info("LOGVEX CRYSTAL in-world module sweep: {} exercised, {} skipped (conflict/dependency)",
+                        exercised, skipped);
                 smokeStage++;
             }
             case 22 -> {
-                if (smokeTick < 1200) {
+                if (smokeTick < 960) {
                     return;
                 }
-                // Let the enabled modules run for a few hundred ticks, then assert none recorded a
-                // failure. This is the check the title-screen smoke cannot make: it proves the
-                // modules' in-world tick bodies actually execute without throwing.
-                for (String name : new String[]{"EntityEsp", "CrystalEsp", "StorageEsp", "HoleEsp",
-                        "AutoSprint", "SafeWalk", "AutoJump", "AutoTotem+", "AutoArmor", "AutoTool+"}) {
-                    var module = modules.byName(name);
-                    if (module != null && module.isEnabled()) {
-                        module.disable();
-                    }
-                }
+                // Assert the whole sweep left the error log empty. This is the check the
+                // title-screen smoke cannot make: it proves the modules' in-world tick bodies
+                // actually execute without throwing.
                 int recorded = errors().totalRecorded();
                 LOG.info("LOGVEX CRYSTAL in-world modules ran ({} error(s) recorded)", recorded);
                 require(recorded == 0, "world-dependent modules recorded " + recorded
