@@ -95,6 +95,9 @@ All commands are local-only. Prefix `;` or `.crystal`.
 | `; friend <add\|remove\|list> [name]` | Manage the friend list |
 | `; hud <element> <on\|off>` / `hudedit` / `gui` | HUD control |
 | `; scan <start\|pause\|resume\|stop\|reset\|status\|gui\|export\|profile>` | World scanner control |
+| `; automation <gui\|queue\|pause\|resume\|stop\|restock\|rules> [args]` | Automation hub control |
+| `; tools` (or `; wt`) | Open the World Tools interface |
+| `; build <list\|place\|move\|rotate\|mirror\|remove\|undo\|redo\|save\|clear\|materials>` | Blueprint planner |
 | `; save` / `load` / `list [category]` / `version` | Config & info |
 | `; assets [list\|reload]` | Report the asset pack, or clear the texture cache |
 
@@ -200,6 +203,26 @@ container contents — only the block-entity type and position.
   SpawnerEsp, BedEsp, PortalEsp and BlockEsp, on a shared block-entity ESP base.
 * **World readouts:** `WorldInfo` supplies biome, dimension, time, light level and ping to
   the HUD; `BlockScanner` finds nearby blocks for the ESP modules.
+
+## Automation
+
+A modular player-automation framework (`; automation`, or `; gui` for the panel). Modules are
+independent, share a task queue and a single inventory-transaction arbiter (so two modules never
+compete for the same click), and every action is an ordinary game action. Inventory modules
+(AutoTotem, AutoArmor, AutoWeapon, AutoTool, AutoRefill, AutoReplenish, AutoEat, AutoPotion,
+AutoSort, AutoTrash, ShulkerOrganizer, HotbarPresets, ContainerTransfer, RestockPlanner) and
+player-assistance modules (AutoSprint, SafeWalk, AutoJump, AutoSwim, AutoRespawn, AutoGG,
+AfkGuard, SessionStats) all report a live status line and support pause/resume/cancel/emergency
+stop. See [docs/automation.md](docs/automation.md).
+
+## World tools
+
+`; tools` opens a searchable building and world-inspection interface. The building side is a
+local plan you edit — schematic placement, multi-layer viewer, bounded placement preview,
+rotation/mirror, undo/redo, a build-progress tracker and a missing-material calculator — and the
+world side reports block/state/resistance, light level, chunk borders, biome, entities, time,
+weather, dimension and coordinates from the shared cached query layer. Storage inspection only
+touches inventories you can legitimately access. See [docs/world-tools.md](docs/world-tools.md).
 
 ## HUD
 

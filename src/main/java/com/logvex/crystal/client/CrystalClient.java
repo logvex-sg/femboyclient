@@ -107,6 +107,8 @@ public final class CrystalClient implements ClientModInitializer {
     /** The deterministic automation rule engine and its persistent store. */
     private final com.logvex.crystal.automation.AutomationEngine automation =
             new com.logvex.crystal.automation.AutomationEngine(events);
+    /** The shared automation hub: task queue + inventory transaction manager. */
+    private com.logvex.crystal.automation.AutomationService automationService;
     private com.logvex.crystal.automation.AutomationStore automationStore;
     private com.logvex.crystal.automation.ClientAutomationContext automationContext;
     /** The injected service context, kept so the extension API can attach extension modules. */
@@ -257,13 +259,17 @@ public final class CrystalClient implements ClientModInitializer {
         modules = new ModuleManager();
         combat = new CombatService();
         cosmetics = new CosmeticService();
+        // The automation hub must exist before the modules so every inventory module can submit
+        // its moves through the one shared transaction manager.
+        automationService = new com.logvex.crystal.automation.AutomationService(modules,
+                notifications, errors());
         ModuleRegistry.registerAll(modules);
         config = new ConfigManager(modules, ConfigPaths.modules());
         hud = new HudManager(modules, theme);
         hudLayoutStore = new HudLayoutStore(ConfigPaths.hud());
         hudLayoutStore.loadInto(hud.layout());
         moduleContext = new ModuleContext(modules, combat, theme, hud, notifications, config,
-                actionCoordinator);
+                actionCoordinator, automationService);
         modules.attachContext(moduleContext);
         // The coordination inspector reads module declarations against the live environment.
         // Services are always present; Baritone is an optional integration; the world-query
@@ -574,9 +580,10 @@ public final class CrystalClient implements ClientModInitializer {
                 () -> ai, () -> aiSettings.localAnalysis);
         diagnosticNotifier = new com.logvex.crystal.commandcenter.ui.DiagnosticNotifier(
                 notifications, commandCenterPreferences);
-        quickActions.setEnabled(quickActions.size() > 0);
+        // The accessor, not the field: with no saved actions the loop above never initialises it.
+        quickActions().setEnabled(quickActions().size() > 0);
         LOG.info("Command Center UI ready: {} quick action(s), default workspace {}",
-                quickActions.size(), commandCenterPreferences.defaultWorkspace.label());
+                quickActions().size(), commandCenterPreferences.defaultWorkspace.label());
     }
 
     /** The quick-action engine, built lazily so bootstrap order does not matter. */
@@ -869,6 +876,10 @@ public final class CrystalClient implements ClientModInitializer {
             baritone.tick(client);
             modules.tickAll();
             actionCoordinator.tick(System.currentTimeMillis());
+            // The automation hub runs after the modules, so a module that scheduled work this
+            // tick has it considered immediately; its single transaction step still leaves at
+            // most one slot click per tick.
+            automationService.tick(client);
             eventFeed.tick(client);
             tickAi(client);
             tickCommandCenter();
@@ -1187,6 +1198,95 @@ public final class CrystalClient implements ClientModInitializer {
                         com.logvex.crystal.notification.NotificationSettings.Position.TOP_RIGHT;
                 notifications.settings().scale = 1.0f;
                 saveAll();
+                smokeStage++;
+            }
+            case 15 -> {
+                if (smokeTick < 440) {
+                    return;
+                }
+                // The Automation panel must install, and the hub it drives must actually run
+                // work: pause/resume, a real queued task that completes, and an emergency stop.
+                client.setScreen(new com.logvex.crystal.gui.AutomationPanelScreen(theme, modules,
+                        automationService));
+                require(client.currentScreen instanceof com.logvex.crystal.gui.AutomationPanelScreen,
+                        "Automation panel did not install");
+                require(automationService != null, "automation hub was not constructed");
+
+                // A queued task runs to completion through the real queue.
+                java.util.concurrent.atomic.AtomicInteger steps =
+                        new java.util.concurrent.atomic.AtomicInteger();
+                automationService.submitTask(com.logvex.crystal.automation.task.AutomationTask
+                        .builder("smoke-task", "Smoke", (ctx, progress) -> {
+                            steps.incrementAndGet();
+                            progress.progress(steps.get(), 3);
+                            return steps.get() >= 3
+                                    ? com.logvex.crystal.automation.task.AutomationTask.StepResult.COMPLETED
+                                    : com.logvex.crystal.automation.task.AutomationTask.StepResult.RUNNING;
+                        })
+                        .owner("smoke")
+                        .totalSteps(3)
+                        .requiresWorld(false)
+                        .build());
+                for (int i = 0; i < 6 && steps.get() < 3; i++) {
+                    automationService.tick(client);
+                }
+                require(steps.get() >= 3, "queued automation task did not complete");
+                require(automationService.queue().history().stream()
+                                .anyMatch(record -> record.id().equals("smoke-task")),
+                        "completed task was not recorded in history");
+
+                automationService.setPaused(true);
+                require(automationService.isPaused(), "hub did not report paused");
+                automationService.setPaused(false);
+                require(!automationService.isPaused(), "hub did not resume");
+
+                int cancelled = automationService.emergencyStop();
+                require(automationService.emergencyStopped(), "emergency stop did not latch");
+                automationService.clearEmergencyStop();
+                require(!automationService.emergencyStopped(), "emergency stop did not clear");
+                LOG.info("LOGVEX CRYSTAL automation hub OK ({} cancelled, {} modules)",
+                        cancelled, modules.size());
+
+                client.setScreen(null);
+                smokeStage++;
+            }
+            case 16 -> {
+                if (smokeTick < 480) {
+                    return;
+                }
+                // The World Tools interface must install, and the build planner it drives must
+                // actually plan: a placement is added, previewed, undone and redone through the
+                // real library, and the material calculator reports a deficit.
+                var planner = modules.byClass(com.logvex.crystal.module.world.BuildPlannerModule.class);
+                require(planner != null, "build planner module is not registered");
+                var library = planner.library();
+                require(library.schematic("demo-3x3-floor").isPresent(), "demo schematic missing");
+
+                var placement = library.place("demo-3x3-floor", 100, 64, 100);
+                require(library.plannedBlockCount() == 9, "expected 9 planned blocks");
+                require(library.previewBlocks(placement, 100, 100, 48, 4096).size() == 9,
+                        "preview did not return the planned blocks");
+                require(library.rotate(placement.id()) && placement.rotation() == 1,
+                        "rotation was not recorded");
+                library.undo();
+                require(placement.rotation() == 0, "undo did not revert the rotation");
+                library.redo();
+                require(placement.rotation() == 1, "redo did not reapply the rotation");
+                library.remove(placement.id());
+                library.undo();
+                require(library.placements().size() == 1, "placement removal was not undoable");
+
+                var missing = com.logvex.crystal.world.build.BuildPlanner.missing(
+                        library.effectiveSchematic(placement), item -> 0);
+                require(missing.getOrDefault("minecraft:stone_bricks", 0) == 9,
+                        "material calculator did not report the full deficit");
+
+                client.setScreen(new com.logvex.crystal.gui.WorldToolsScreen(theme, this));
+                require(client.currentScreen instanceof com.logvex.crystal.gui.WorldToolsScreen,
+                        "World Tools screen did not install");
+                client.setScreen(null);
+                LOG.info("LOGVEX CRYSTAL world tools OK ({} schematic(s), {} placement(s))",
+                        library.schematics().size(), library.placements().size());
                 smokeStage++;
             }
             default -> {
@@ -1600,6 +1700,15 @@ public final class CrystalClient implements ClientModInitializer {
     /** The automation rule engine. */
     public com.logvex.crystal.automation.AutomationEngine automation() {
         return automation;
+    }
+
+    /**
+     * The automation hub: the shared task queue and inventory-transaction arbiter every
+     * automation module schedules through. May be null before the client has finished
+     * bootstrapping.
+     */
+    public com.logvex.crystal.automation.AutomationService automationService() {
+        return automationService;
     }
 
     /** Persists the automation rules and enabled flag. */

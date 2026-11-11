@@ -8,8 +8,13 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.logvex.crystal.integration.baritone.BaritoneService;
 import java.nio.file.Path;
+import java.util.Collection;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Set;
+import java.util.concurrent.AbstractExecutorService;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -139,6 +144,38 @@ class WorldIntelligenceTest {
         }
     }
 
+    /** Runs submitted tasks on the calling thread, so a scan tick is fully deterministic. */
+    private static final class SameThreadExecutor extends AbstractExecutorService {
+        @Override
+        public void execute(Runnable command) {
+            command.run();
+        }
+
+        @Override
+        public void shutdown() {
+        }
+
+        @Override
+        public List<Runnable> shutdownNow() {
+            return List.of();
+        }
+
+        @Override
+        public boolean isShutdown() {
+            return false;
+        }
+
+        @Override
+        public boolean isTerminated() {
+            return false;
+        }
+
+        @Override
+        public boolean awaitTermination(long timeout, TimeUnit unit) {
+            return true;
+        }
+    }
+
     private record Harness(WorldIntelligence intelligence, FakeWorld world, MovementCoordinator movement,
                            DiscoveryDatabase database, WorldScanner scanner) {
     }
@@ -151,8 +188,10 @@ class WorldIntelligenceTest {
             }
         }
         ScanDatabase sessions = new ScanDatabase(dir.resolve("scan.json"));
+        // Classify on the calling thread so observations are recorded within the same tick; the
+        // production daemon worker made this test race the scheduler and fail intermittently.
         WorldScanner scanner = new WorldScanner(world, new FakeFlight(), new FakeMovement(),
-                new WorldMapper(4000), sessions);
+                new WorldMapper(4000), sessions, new SameThreadExecutor(), false);
         MovementCoordinator movement = new MovementCoordinator();
         DiscoveryDatabase database = new DiscoveryDatabase(dir.resolve("world-intelligence.json"));
         BaritoneController baritone = new BaritoneController(new BaritoneService(), movement,

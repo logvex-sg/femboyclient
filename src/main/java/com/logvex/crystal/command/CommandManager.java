@@ -90,7 +90,8 @@ public final class CommandManager {
             "favorite", "favourite", "save", "load", "reload", "list", "modules", "errors",
             "diagnostics", "conflicts", "coord", "automation", "auto", "diag", "crystal", "ac",
             "assets", "version", "ver", "extensions", "ext", "scripts", "script", "ai",
-            "center", "commandcenter", "hub");
+            "center", "commandcenter", "hub", "tools", "worldtools", "wt", "build", "blueprint",
+            "schematic");
 
     /**
      * Handles a raw chat line. Returns true when the line was a Crystal command and must
@@ -199,7 +200,9 @@ public final class CommandManager {
             case "hudedit" -> hudEdit();
             case "waypoint", "wp" -> waypoint(args);
             case "baritone", "bari", "path" -> baritone(args);
-            case "world", "worldinfo" -> world();
+            case "world", "worldinfo" -> world(args);
+            case "tools", "worldtools", "wt" -> openWorldTools();
+            case "build", "blueprint", "schematic" -> worldBuild(args);
             case "scan", "scanner" -> scan(args);
             case "wi", "intel", "intelligence" -> worldIntelligence(args);
             case "entities", "entity" -> entities(args);
@@ -790,8 +793,17 @@ public final class CommandManager {
     }
 
     /** Prints the world-information panel's lines to chat. */
-    private void world() {
+    private void world(List<String> args) {
         MinecraftClient mc = MinecraftClient.getInstance();
+        String sub = args.size() > 1 ? args.get(1).toLowerCase(Locale.ROOT) : "";
+        if (sub.equals("tools")) {
+            openWorldTools();
+            return;
+        }
+        if (sub.equals("build")) {
+            worldBuild(args);
+            return;
+        }
         var module = client.modules().byClass(com.logvex.crystal.module.world.WorldInfoModule.class);
         if (module == null) {
             client.notify("WorldInfo module is unavailable", NotificationLevel.ERROR);
@@ -810,6 +822,168 @@ public final class CommandManager {
         for (String line : lines) {
             client.notify(line, NotificationLevel.INFO);
         }
+    }
+
+    /** {@code ; tools} - opens the World Tools interface. */
+    private void openWorldTools() {
+        MinecraftClient.getInstance().setScreen(
+                new com.logvex.crystal.gui.WorldToolsScreen(client.theme(), client));
+    }
+
+    /**
+     * {@code ; build <list|place|move|rotate|mirror|undo|redo|save|load|clear|materials> ...} -
+     * the blueprint planner. Every subcommand edits the shared {@link
+     * com.logvex.crystal.world.build.BlueprintLibrary} that the BuildPlanner module owns, so the
+     * command surface and the GUI act on exactly the same plan.
+     */
+    private void worldBuild(List<String> args) {
+        var module = client.modules().byClass(com.logvex.crystal.module.world.BuildPlannerModule.class);
+        if (module == null) {
+            client.notify("BuildPlanner module is unavailable", NotificationLevel.ERROR);
+            return;
+        }
+        var library = module.library();
+        String sub = args.size() > 1 ? args.get(1).toLowerCase(Locale.ROOT) : "list";
+        MinecraftClient mc = MinecraftClient.getInstance();
+        switch (sub) {
+            case "list", "status" -> {
+                client.notify(library.schematics().size() + " schematic(s), "
+                        + library.placements().size() + " placement(s), "
+                        + library.plannedBlockCount() + " planned block(s)", NotificationLevel.INFO);
+                for (String line : library.describePlan()) {
+                    client.notify("  " + line, NotificationLevel.INFO);
+                }
+                if (library.placements().isEmpty()) {
+                    client.notify("No placements. Use '; build place <schematic>'", NotificationLevel.INFO);
+                }
+            }
+            case "schematics" -> {
+                for (var schematic : library.schematics()) {
+                    client.notify("  " + schematic.describe(), NotificationLevel.INFO);
+                }
+            }
+            case "place" -> {
+                if (args.size() < 3) {
+                    client.notify("Usage: ; build place <schematic> [x y z]", NotificationLevel.WARN);
+                    return;
+                }
+                String name = args.get(2);
+                if (library.schematic(name).isEmpty()) {
+                    client.notify("Unknown schematic '" + name + "'", NotificationLevel.WARN);
+                    return;
+                }
+                int x = mc.player == null ? 0 : mc.player.getBlockX();
+                int y = mc.player == null ? 64 : mc.player.getBlockY();
+                int z = mc.player == null ? 0 : mc.player.getBlockZ();
+                if (args.size() >= 6) {
+                    x = parseInt(args.get(3), x);
+                    y = parseInt(args.get(4), y);
+                    z = parseInt(args.get(5), z);
+                }
+                var placement = library.place(name, x, y, z);
+                module.save();
+                client.notify("Placed " + placement.describe(), NotificationLevel.SUCCESS);
+            }
+            case "move" -> {
+                if (args.size() < 4) {
+                    client.notify("Usage: ; build move <id> <dx> <dy> <dz>", NotificationLevel.WARN);
+                    return;
+                }
+                if (!library.move(args.get(2), parseInt(args.get(3), 0),
+                        args.size() > 4 ? parseInt(args.get(4), 0) : 0,
+                        args.size() > 5 ? parseInt(args.get(5), 0) : 0)) {
+                    client.notify("No placement '" + args.get(2) + "'", NotificationLevel.WARN);
+                    return;
+                }
+                client.notify("Moved " + args.get(2), NotificationLevel.SUCCESS);
+            }
+            case "rotate" -> {
+                if (args.size() < 3 || !library.rotate(args.get(2))) {
+                    client.notify("Usage: ; build rotate <id>", NotificationLevel.WARN);
+                    return;
+                }
+                client.notify("Rotated " + args.get(2), NotificationLevel.SUCCESS);
+            }
+            case "mirror" -> {
+                if (args.size() < 3 || !library.mirror(args.get(2))) {
+                    client.notify("Usage: ; build mirror <id>", NotificationLevel.WARN);
+                    return;
+                }
+                client.notify("Mirrored " + args.get(2), NotificationLevel.SUCCESS);
+            }
+            case "remove", "delete" -> {
+                if (args.size() < 3 || !library.remove(args.get(2))) {
+                    client.notify("Usage: ; build remove <id>", NotificationLevel.WARN);
+                    return;
+                }
+                client.notify("Removed " + args.get(2), NotificationLevel.SUCCESS);
+            }
+            case "undo" -> {
+                String label = library.undo();
+                client.notify(label == null ? "Nothing to undo" : "Undid " + label,
+                        label == null ? NotificationLevel.INFO : NotificationLevel.SUCCESS);
+            }
+            case "redo" -> {
+                String label = library.redo();
+                client.notify(label == null ? "Nothing to redo" : "Redid " + label,
+                        label == null ? NotificationLevel.INFO : NotificationLevel.SUCCESS);
+            }
+            case "save" -> client.notify(module.save() ? "Plan saved" : "Save failed",
+                    module.save() ? NotificationLevel.SUCCESS : NotificationLevel.ERROR);
+            case "clear" -> {
+                for (var placement : new java.util.ArrayList<>(library.placements())) {
+                    library.remove(placement.id());
+                }
+                client.notify("Plan cleared (schematics kept)", NotificationLevel.SUCCESS);
+            }
+            case "materials" -> {
+                var totals = library.plannedMaterials();
+                if (totals.isEmpty()) {
+                    client.notify("No materials planned", NotificationLevel.INFO);
+                    return;
+                }
+                var combined = com.logvex.crystal.world.build.Schematic.of("plan",
+                        library.placements().stream()
+                                .map(library::effectiveSchematic)
+                                .filter(java.util.Objects::nonNull)
+                                .flatMap(s -> s.blocks().stream())
+                                .toList());
+                var missing = com.logvex.crystal.world.build.BuildPlanner.missing(combined,
+                        item -> countItemInInventory(mc, item));
+                for (var entry : totals.entrySet()) {
+                    int deficit = missing.getOrDefault(entry.getKey(), 0);
+                    client.notify("  " + entry.getKey() + " x" + entry.getValue()
+                            + (deficit > 0 ? " (missing " + deficit + ")" : " (ready)"),
+                            deficit > 0 ? NotificationLevel.WARN : NotificationLevel.INFO);
+                }
+            }
+            default -> client.notify("Usage: ; build <list|schematics|place|move|rotate|mirror|"
+                    + "remove|undo|redo|save|clear|materials>", NotificationLevel.WARN);
+        }
+    }
+
+    private static int parseInt(String text, int fallback) {
+        try {
+            return Integer.parseInt(text.trim());
+        } catch (RuntimeException e) {
+            return fallback;
+        }
+    }
+
+    /** How many of an item id the player's own inventory holds, for the material calculator. */
+    private static int countItemInInventory(MinecraftClient mc, String itemId) {
+        if (mc == null || mc.player == null) {
+            return 0;
+        }
+        int count = 0;
+        for (int slot = 0; slot < com.logvex.crystal.player.InventoryUtil.MAIN_SIZE; slot++) {
+            var stack = mc.player.getInventory().getStack(slot);
+            if (!stack.isEmpty() && net.minecraft.registry.Registries.ITEM.getId(stack.getItem())
+                    .toString().equals(itemId)) {
+                count += stack.getCount();
+            }
+        }
+        return count;
     }
 
     /**
@@ -2043,8 +2217,154 @@ public final class CommandManager {
                         NotificationLevel.SUCCESS);
             }
             case "add" -> addAutomation(args);
+            case "hub", "queue", "tasks" -> automationHub(args);
+            case "pause" -> automationControl("pause");
+            case "resume" -> automationControl("resume");
+            case "stop", "emergency" -> automationControl("stop");
+            case "modules" -> automationModules();
+            case "hotbar" -> automationHotbar(args);
+            case "restock" -> automationRestock(args);
+            case "gui", "panel" -> openAutomationPanel();
             default -> client.notify("Usage: ; automation <status|on|off|list|history|"
-                    + "add|remove|toggle>", NotificationLevel.WARN);
+                    + "add|remove|toggle|hub|pause|resume|stop|modules|hotbar|restock>",
+                    NotificationLevel.WARN);
+        }
+    }
+
+    /** {@code ; automation modules} - the status line of every automation-category module. */
+    private void automationModules() {
+        int shown = 0;
+        for (com.logvex.crystal.module.Module module : client.modules().all()) {
+            if (module.category() != com.logvex.crystal.module.Category.AUTOMATION) {
+                continue;
+            }
+            String status = module instanceof com.logvex.crystal.automation.AutomationModule automationModule
+                    ? automationModule.statusLine() : "";
+            client.notify((module.isEnabled() ? "\u2713 " : "\u2717 ") + module.name()
+                    + (status.isEmpty() ? "" : " - " + status), NotificationLevel.INFO);
+            shown++;
+        }
+        client.notify(shown + " automation module(s)", NotificationLevel.INFO);
+    }
+
+    /** {@code ; automation hub} - the live task queue and inventory arbiter. */
+    private void automationHub(List<String> args) {
+        var hub = client.automationService();
+        if (hub == null) {
+            client.notify("Automation hub unavailable", NotificationLevel.WARN);
+            return;
+        }
+        if (args.size() > 1 && args.get(1).equalsIgnoreCase("history")) {
+            var history = hub.queue().history();
+            if (history.isEmpty()) {
+                client.notify("No task history", NotificationLevel.INFO);
+                return;
+            }
+            for (var record : history) {
+                client.notify("  " + record.describe(), NotificationLevel.INFO);
+            }
+            return;
+        }
+        client.notify(hub.summary(), hub.isPaused() ? NotificationLevel.WARN : NotificationLevel.INFO);
+        var current = hub.queue().current();
+        if (current.isPresent()) {
+            var entry = current.get();
+            client.notify("current: " + entry.name() + " " + entry.progressDone() + "/"
+                    + entry.progressTotal() + " " + entry.note(), NotificationLevel.INFO);
+        }
+        var transaction = hub.transactions().running();
+        if (transaction.isPresent()) {
+            var active = transaction.get();
+            client.notify("inventory: " + active.transaction().description()
+                    + " step " + active.currentStep(), NotificationLevel.INFO);
+        }
+    }
+
+    /** {@code ; automation pause|resume|stop} - the global controls. */
+    private void automationControl(String action) {
+        var hub = client.automationService();
+        if (hub == null) {
+            client.notify("Automation hub unavailable", NotificationLevel.WARN);
+            return;
+        }
+        switch (action) {
+            case "pause" -> {
+                hub.setPaused(true);
+                client.notify("Automation paused", NotificationLevel.INFO);
+            }
+            case "resume" -> {
+                if (hub.emergencyStopped()) {
+                    hub.clearEmergencyStop();
+                }
+                hub.setPaused(false);
+                client.notify("Automation resumed", NotificationLevel.SUCCESS);
+            }
+            case "stop" -> {
+                int cancelled = hub.emergencyStop();
+                client.notify("Emergency stop: " + cancelled + " task(s) cancelled",
+                        NotificationLevel.WARN);
+            }
+            default -> {
+                // unreachable
+            }
+        }
+    }
+
+    /** {@code ; automation hotbar <capture|apply|list> [name]} - hotbar presets. */
+    private void automationHotbar(List<String> args) {
+        var module = client.modules().byName("HotbarPresets");
+        if (!(module instanceof com.logvex.crystal.module.automation.HotbarPresetsAutomation presets)) {
+            client.notify("HotbarPresets module unavailable", NotificationLevel.WARN);
+            return;
+        }
+        String sub = args.size() > 1 ? args.get(1).toLowerCase(java.util.Locale.ROOT) : "list";
+        switch (sub) {
+            case "list" -> {
+                if (presets.store().size() == 0) {
+                    client.notify("No hotbar presets", NotificationLevel.INFO);
+                    return;
+                }
+                client.notify("Presets: " + String.join(", ", presets.store().names()),
+                        NotificationLevel.INFO);
+            }
+            case "capture" -> {
+                if (args.size() < 3) {
+                    client.notify("Usage: ; automation hotbar capture <name>", NotificationLevel.WARN);
+                    return;
+                }
+                client.notify(presets.captureCurrent(args.get(2)), NotificationLevel.SUCCESS);
+            }
+            case "apply" -> {
+                if (args.size() < 3) {
+                    client.notify("Usage: ; automation hotbar apply <name>", NotificationLevel.WARN);
+                    return;
+                }
+                client.notify(presets.apply(args.get(2)), NotificationLevel.SUCCESS);
+            }
+            default -> client.notify("Usage: ; automation hotbar <list|capture|apply> [name]",
+                    NotificationLevel.WARN);
+        }
+    }
+
+    /** {@code ; automation gui} - opens the Automation panel screen. */
+    private void openAutomationPanel() {
+        var screen = new com.logvex.crystal.gui.AutomationPanelScreen(
+                client.theme(), client.modules(), client.automationService());
+        net.minecraft.client.MinecraftClient.getInstance().setScreen(screen);
+    }
+
+    /** {@code ; automation restock [plan|report]} - the item restock planner. */
+    private void automationRestock(List<String> args) {
+        var module = client.modules().byName("RestockPlanner");
+        if (!(module instanceof com.logvex.crystal.module.automation.RestockPlannerAutomation restock)) {
+            client.notify("RestockPlanner module unavailable", NotificationLevel.WARN);
+            return;
+        }
+        String sub = args.size() > 1 ? args.get(1).toLowerCase(java.util.Locale.ROOT) : "report";
+        if (sub.equals("plan") || sub.equals("run")) {
+            client.notify(restock.planAndRun(), NotificationLevel.SUCCESS);
+        } else {
+            client.notify(restock.report(), NotificationLevel.INFO);
         }
     }
 

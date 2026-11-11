@@ -59,7 +59,7 @@ import com.logvex.crystal.module.render.TracersModule;
 public final class ModuleRegistry {
 
     /** Number of concrete modules registered; asserted by the registry test. */
-    public static final int EXPECTED_MODULE_COUNT = 71;
+    public static final int EXPECTED_MODULE_COUNT = 94;
 
     private ModuleRegistry() {
     }
@@ -144,5 +144,33 @@ public final class ModuleRegistry {
         // World inspection.
         manager.register(new com.logvex.crystal.module.world.WorldInfoModule());
         manager.register(new com.logvex.crystal.module.world.WorldScannerModule());
+
+        // World interaction and building toolkit.
+        manager.register(new com.logvex.crystal.module.world.BuildPlannerModule());
+
+        // Automation - inventory.
+        manager.register(new com.logvex.crystal.module.automation.AutoTotemAutomation());
+        manager.register(new com.logvex.crystal.module.automation.AutoArmorAutomation());
+        manager.register(new com.logvex.crystal.module.automation.AutoWeaponAutomation());
+        manager.register(new com.logvex.crystal.module.automation.AutoToolAutomation());
+        manager.register(new com.logvex.crystal.module.automation.AutoRefillAutomation());
+        manager.register(new com.logvex.crystal.module.automation.AutoReplenishAutomation());
+        manager.register(new com.logvex.crystal.module.automation.AutoEatAutomation());
+        manager.register(new com.logvex.crystal.module.automation.AutoPotionAutomation());
+        manager.register(new com.logvex.crystal.module.automation.AutoSortAutomation());
+        manager.register(new com.logvex.crystal.module.automation.AutoTrashAutomation());
+        manager.register(new com.logvex.crystal.module.automation.ShulkerOrganizerAutomation());
+        manager.register(new com.logvex.crystal.module.automation.HotbarPresetsAutomation());
+        manager.register(new com.logvex.crystal.module.automation.ContainerTransferAutomation());
+        manager.register(new com.logvex.crystal.module.automation.RestockPlannerAutomation());
+        // Automation - player assistance.
+        manager.register(new com.logvex.crystal.module.automation.AutoSprintAutomation());
+        manager.register(new com.logvex.crystal.module.automation.SafeWalkAutomation());
+        manager.register(new com.logvex.crystal.module.automation.AutoJumpAutomation());
+        manager.register(new com.logvex.crystal.module.automation.AutoSwimAutomation());
+        manager.register(new com.logvex.crystal.module.automation.AutoRespawnAutomation());
+        manager.register(new com.logvex.crystal.module.automation.AutoGgAutomation());
+        manager.register(new com.logvex.crystal.module.automation.AfkGuardAutomation());
+        manager.register(new com.logvex.crystal.module.automation.SessionStatsAutomation());
     }
 }
