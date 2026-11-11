@@ -21,6 +21,7 @@ public final class ModuleContext {
     private final NotificationManager notifications;
     private final ConfigManager configManager;
     private final ActionCoordinator actionCoordinator;
+    private final com.logvex.crystal.automation.AutomationService automation;
 
     public ModuleContext(ModuleManager moduleManager, CombatService combatService, ThemeManager theme,
                          HudManager hudManager, NotificationManager notifications, ConfigManager configManager) {
@@ -31,6 +32,14 @@ public final class ModuleContext {
     public ModuleContext(ModuleManager moduleManager, CombatService combatService, ThemeManager theme,
                          HudManager hudManager, NotificationManager notifications, ConfigManager configManager,
                          ActionCoordinator actionCoordinator) {
+        this(moduleManager, combatService, theme, hudManager, notifications, configManager,
+                actionCoordinator, null);
+    }
+
+    public ModuleContext(ModuleManager moduleManager, CombatService combatService, ThemeManager theme,
+                         HudManager hudManager, NotificationManager notifications, ConfigManager configManager,
+                         ActionCoordinator actionCoordinator,
+                         com.logvex.crystal.automation.AutomationService automation) {
         this.moduleManager = moduleManager;
         this.combatService = combatService;
         this.theme = theme;
@@ -38,6 +47,7 @@ public final class ModuleContext {
         this.notifications = notifications;
         this.configManager = configManager;
         this.actionCoordinator = actionCoordinator == null ? new ActionCoordinator() : actionCoordinator;
+        this.automation = automation;
     }
 
     public ModuleManager moduleManager() {
@@ -71,5 +81,19 @@ public final class ModuleContext {
      */
     public ActionCoordinator actions() {
         return actionCoordinator;
+    }
+
+    /**
+     * The shared automation hub: the task queue and the inventory transaction manager. Modules
+     * that schedule multi-step work or move items submit here rather than acting on their own
+     * tick, so two modules can never click the same slots. Null in unit tests that do not build
+     * the full client; {@link #hasAutomation()} guards those.
+     */
+    public com.logvex.crystal.automation.AutomationService automation() {
+        return automation;
+    }
+
+    public boolean hasAutomation() {
+        return automation != null;
     }
 }

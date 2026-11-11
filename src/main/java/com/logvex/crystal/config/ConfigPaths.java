@@ -25,12 +25,27 @@ public final class ConfigPaths {
         return directory().resolve("hud.json");
     }
 
+    /** Directory holding named HUD layout "profiles" and their exports. */
+    public static Path hudLayouts() {
+        return directory().resolve("hud-layouts");
+    }
+
     public static Path friends() {
         return directory().resolve("friends.json");
     }
 
     public static Path waypoints() {
         return directory().resolve("waypoints.json");
+    }
+
+    /** Saved navigation routes and their history. */
+    public static Path navigation() {
+        return directory().resolve("navigation.json");
+    }
+
+    /** Waypoint organisation (categories, groups, notes) and bookmarks. */
+    public static Path waypointRegistry() {
+        return directory().resolve("waypoint-meta.json");
     }
 
     public static Path favorites() {
@@ -48,6 +63,11 @@ public final class ConfigPaths {
     /** Persisted automation rules. */
     public static Path automation() {
         return directory().resolve("automation.json");
+    }
+
+    /** Persisted container labels, keyed by dimension and block position. */
+    public static Path containerLabels() {
+        return directory().resolve("container-labels.json");
     }
 
     /** Persisted extension approval decisions. */
@@ -68,6 +88,16 @@ public final class ConfigPaths {
     /** Directory holding named configuration profiles. */
     public static Path profiles() {
         return directory().resolve("profiles");
+    }
+
+    /** Sidecar metadata for profiles: descriptions, categories, default and context. */
+    public static Path profileMetadata() {
+        return directory().resolve("profile-meta.json");
+    }
+
+    /** Audit log of profile changes. */
+    public static Path profileHistory() {
+        return directory().resolve("profile-history.json");
     }
 
     /** Phase 7 mini-AI preferences. */

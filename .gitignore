@@ -1,11 +1,13 @@
 # Gradle
-.gradle/
-build/
-out/
+# Anchored to the repository root: a bare `build/` also matches the source package
+# src/main/java/com/logvex/crystal/world/build, which silently kept it out of git.
+/.gradle/
+/build/
+/out/
 
 # Loom dev-run artifacts
-run/
-run-*/
+/run/
+/run-*/
 
 # IDE
 .idea/

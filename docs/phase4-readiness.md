@@ -100,10 +100,11 @@ code centralises button geometry for exactly this reason).
 
 ### 1.8 Configuration and profiles — **Verified**
 
-- `config/`: `ConfigIo` (atomic write, `.bak`, malformed tolerance, recovery listener),
-  `ConfigManager` (schema-versioned `modules.json`, newer-schema refusal), `ConfigPaths`,
+- `config/`: `ConfigIo` (atomic write, `.bak`, malformed tolerance, automatic backup recovery
+  on read via `recoverFromBackup`/`isCorrupt`, recovery + restore listeners), `ConfigManager`
+  (schema-versioned `modules.json`, newer-schema refusal), `ConfigPaths`,
   `ProfileService`/`ProfileManager`, and stores for appearance/hud/friends/waypoints/
-  favorites/notifications/context/automation.
+  favorites/notifications/context/automation/container-labels.
 
 **Phase 4 need:** extension settings need their own store with the same guarantees; profile
 migration and unknown-field preservation must be extended for the new keys.

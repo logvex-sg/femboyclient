@@ -90,7 +90,9 @@ public final class CommandManager {
             "favorite", "favourite", "save", "load", "reload", "list", "modules", "errors",
             "diagnostics", "conflicts", "coord", "automation", "auto", "diag", "crystal", "ac",
             "assets", "version", "ver", "extensions", "ext", "scripts", "script", "ai",
-            "center", "commandcenter", "hub");
+            "center", "commandcenter", "hub", "tools", "worldtools", "wt", "build", "blueprint",
+            "schematic", "nav", "navigation", "route", "routes", "bookmark", "bookmarks",
+            "settings", "setting", "find", "perf", "report", "diagreport");
 
     /**
      * Handles a raw chat line. Returns true when the line was a Crystal command and must
@@ -199,7 +201,12 @@ public final class CommandManager {
             case "hudedit" -> hudEdit();
             case "waypoint", "wp" -> waypoint(args);
             case "baritone", "bari", "path" -> baritone(args);
-            case "world", "worldinfo" -> world();
+            case "world", "worldinfo" -> world(args);
+            case "tools", "worldtools", "wt" -> openWorldTools();
+            case "build", "blueprint", "schematic" -> worldBuild(args);
+            case "nav", "navigation", "route", "routes" -> navigate(args);
+            case "bookmark", "bookmarks" -> bookmarkCommand(args);
+            case "settings", "setting", "find" -> settings(args);
             case "scan", "scanner" -> scan(args);
             case "wi", "intel", "intelligence" -> worldIntelligence(args);
             case "entities", "entity" -> entities(args);
@@ -226,6 +233,8 @@ public final class CommandManager {
             case "extensions", "ext" -> extensions(args);
             case "scripts", "script" -> scripts();
             case "diag" -> diagnostics();
+            case "perf" -> perf(args);
+            case "report", "diagreport" -> report(args);
             case "crystal", "ac" -> crystalAnalysis();
             case "assets" -> assets(args);
             case "version", "ver" -> client.notify("LOGVEX CRYSTAL " + version(), NotificationLevel.INFO);
@@ -513,6 +522,12 @@ public final class CommandManager {
                 client.notify("HUD " + (client.hud().isHudVisible() ? "shown" : "hidden"), NotificationLevel.SUCCESS);
             }
             case "edit" -> hudEdit();
+            case "save", "profile" -> hudLayoutSave(args);
+            case "load", "apply" -> hudLayoutLoad(args);
+            case "list", "layouts" -> hudLayoutList();
+            case "delete", "remove", "rm" -> hudLayoutDelete(args);
+            case "export" -> hudLayoutExport(args);
+            case "import" -> hudLayoutImport();
             case "on", "off" -> {
                 client.hud().setHudVisible(args.get(0).equalsIgnoreCase("on"));
                 client.notify("HUD " + args.get(0).toLowerCase(Locale.ROOT), NotificationLevel.SUCCESS);
@@ -523,7 +538,7 @@ public final class CommandManager {
                     client.hud().setElementVisible(args.get(0), visible);
                     client.notify(args.get(0) + ": " + (visible ? "on" : "off"), NotificationLevel.SUCCESS);
                 } else {
-                    client.notify("Usage: ; hud <element> <on|off> | toggle | edit", NotificationLevel.WARN);
+                    client.notify("Usage: ; hud <element> <on|off> | toggle | edit | save|load|list|delete|export|import <name>", NotificationLevel.WARN);
                 }
             }
         }
@@ -534,6 +549,76 @@ public final class CommandManager {
             return;
         }
         MinecraftClient.getInstance().setScreen(new HudEditorScreen(client.hud(), client.theme()));
+    }
+
+    private void hudLayoutSave(List<String> args) {
+        if (args.size() < 2) {
+            client.notify("Usage: ; hud save <name>", NotificationLevel.WARN);
+            return;
+        }
+        String name = args.get(1);
+        try {
+            boolean written = client.hudLayouts().save(name, client.hud().layout(), false);
+            client.notify(written
+                            ? "HUD layout saved as '" + com.logvex.crystal.config.HudLayoutLibrary.sanitize(name) + "'"
+                            : "A layout named '" + name + "' already exists",
+                    written ? NotificationLevel.SUCCESS : NotificationLevel.WARN);
+        } catch (java.io.IOException e) {
+            client.notify("Could not save layout: " + e.getMessage(), NotificationLevel.ERROR);
+        }
+    }
+
+    private void hudLayoutLoad(List<String> args) {
+        if (args.size() < 2) {
+            client.notify("Usage: ; hud load <name>", NotificationLevel.WARN);
+            return;
+        }
+        String name = args.get(1);
+        boolean loaded = client.hudLayouts().load(name, client.hud().layout());
+        if (!loaded) {
+            client.notify("No HUD layout named '" + name + "'", NotificationLevel.WARN);
+            return;
+        }
+        client.saveNow();
+        client.notify("HUD layout '" + name + "' applied", NotificationLevel.SUCCESS);
+    }
+
+    private void hudLayoutList() {
+        var names = client.hudLayouts().names();
+        if (names.isEmpty()) {
+            client.notify("No saved HUD layouts. Use ; hud save <name>", NotificationLevel.INFO);
+            return;
+        }
+        client.notify("HUD layouts: " + String.join(", ", names), NotificationLevel.INFO);
+    }
+
+    private void hudLayoutDelete(List<String> args) {
+        if (args.size() < 2) {
+            client.notify("Usage: ; hud delete <name>", NotificationLevel.WARN);
+            return;
+        }
+        boolean removed = client.hudLayouts().delete(args.get(1));
+        client.notify(removed ? "Deleted HUD layout '" + args.get(1) + "'"
+                        : "No HUD layout named '" + args.get(1) + "'",
+                removed ? NotificationLevel.SUCCESS : NotificationLevel.WARN);
+    }
+
+    private void hudLayoutExport(List<String> args) {
+        if (args.size() < 2) {
+            client.notify("Usage: ; hud export <name>", NotificationLevel.WARN);
+            return;
+        }
+        var path = client.hudLayouts().export(args.get(1));
+        client.notify(path != null ? "Exported to " + path.getFileName()
+                        : "No HUD layout named '" + args.get(1) + "'",
+                path != null ? NotificationLevel.SUCCESS : NotificationLevel.WARN);
+    }
+
+    private void hudLayoutImport() {
+        var imported = client.hudLayouts().importAll();
+        client.notify(imported.isEmpty() ? "No *.export.json layouts found in the HUD layout folder"
+                        : "Imported HUD layout(s): " + String.join(", ", imported),
+                imported.isEmpty() ? NotificationLevel.WARN : NotificationLevel.SUCCESS);
     }
 
     // ------------------------------------------------------------ waypoints / friends
@@ -790,8 +875,17 @@ public final class CommandManager {
     }
 
     /** Prints the world-information panel's lines to chat. */
-    private void world() {
+    private void world(List<String> args) {
         MinecraftClient mc = MinecraftClient.getInstance();
+        String sub = args.size() > 1 ? args.get(1).toLowerCase(Locale.ROOT) : "";
+        if (sub.equals("tools")) {
+            openWorldTools();
+            return;
+        }
+        if (sub.equals("build")) {
+            worldBuild(args);
+            return;
+        }
         var module = client.modules().byClass(com.logvex.crystal.module.world.WorldInfoModule.class);
         if (module == null) {
             client.notify("WorldInfo module is unavailable", NotificationLevel.ERROR);
@@ -810,6 +904,463 @@ public final class CommandManager {
         for (String line : lines) {
             client.notify(line, NotificationLevel.INFO);
         }
+    }
+
+    /** {@code ; tools} - opens the World Tools interface. */
+    private void openWorldTools() {
+        MinecraftClient.getInstance().setScreen(
+                new com.logvex.crystal.gui.WorldToolsScreen(client.theme(), client));
+    }
+
+    /**
+     * {@code ; nav <list|show|start|stop|pause|resume|progress|history|clear> [name]} - route
+     * planning and following. Following a route only tracks the player's progress; it never
+     * moves the player, so the command is safe to run at any time.
+     */
+    private void navigate(List<String> args) {
+        var routes = client.routePlans();
+        var state = client.navigation().state();
+        String sub = args.size() > 1 ? args.get(1).toLowerCase(Locale.ROOT) : "list";
+        switch (sub) {
+            case "list" -> {
+                if (routes.size() == 0) {
+                    client.notify("No routes saved. Add one with ; nav add <name> <x z> [x z ...]",
+                            NotificationLevel.INFO);
+                    return;
+                }
+                for (var route : routes.all()) {
+                    client.notify(route.name() + " \u00b7 " + route.nodes().size() + " nodes \u00b7 "
+                            + Math.round(com.logvex.crystal.navigation.RoutePlan.length(route)) + "m"
+                            + (route.dimension().isEmpty() ? "" : " \u00b7 " + route.dimension()),
+                            NotificationLevel.INFO);
+                }
+            }
+            case "add", "set" -> addRoute(args);
+            case "remove", "del", "delete", "rm" -> {
+                if (args.size() < 3) {
+                    client.notify("Usage: ; nav remove <name>", NotificationLevel.WARN);
+                    return;
+                }
+                if (routes.remove(args.get(2))) {
+                    client.saveAll();
+                    client.notify("Removed route '" + args.get(2) + "'", NotificationLevel.SUCCESS);
+                } else {
+                    client.notify("No route named '" + args.get(2) + "'", NotificationLevel.ERROR);
+                }
+            }
+            case "start", "follow" -> {
+                if (args.size() < 3) {
+                    client.notify("Usage: ; nav start <name>", NotificationLevel.WARN);
+                    return;
+                }
+                if (client.navigation().startRoute(args.get(2), MinecraftClient.getInstance())) {
+                    client.notify("Following route '" + args.get(2) + "'", NotificationLevel.SUCCESS);
+                } else {
+                    client.notify("No route named '" + args.get(2) + "' (or not in a world)",
+                            NotificationLevel.ERROR);
+                }
+            }
+            case "stop", "cancel" -> {
+                if (client.navigation().cancelRoute(MinecraftClient.getInstance())) {
+                    client.notify("Route cancelled", NotificationLevel.INFO);
+                } else {
+                    client.notify("No route is being followed", NotificationLevel.INFO);
+                }
+            }
+            case "pause" -> {
+                state.pause();
+                client.notify("Route paused", NotificationLevel.INFO);
+            }
+            case "resume" -> {
+                state.resume();
+                client.notify("Route resumed", NotificationLevel.INFO);
+            }
+            case "progress", "status", "show" -> client.notify(
+                    client.navigation().describe(MinecraftClient.getInstance()), NotificationLevel.INFO);
+            case "history" -> {
+                var history = state.history();
+                if (history.isEmpty()) {
+                    client.notify("No route history", NotificationLevel.INFO);
+                    return;
+                }
+                for (var arrival : history) {
+                    client.notify((arrival.completed() ? "\u2713 " : "\u2717 ") + arrival.routeName()
+                            + " \u00b7 " + Math.round(arrival.travelledBlocks()) + "m",
+                            NotificationLevel.INFO);
+                }
+            }
+            case "clearhistory" -> {
+                state.clearHistory();
+                client.notify("Route history cleared", NotificationLevel.SUCCESS);
+            }
+            default -> client.notify(
+                    "Usage: ; nav <list|add|remove|start|stop|pause|resume|progress|history>",
+                    NotificationLevel.WARN);
+        }
+    }
+
+    /**
+     * {@code ; settings <search|modified|reset|resetmodule|resetall> [args]} - search, inspect
+     * and reset module settings. Backed by the shared {@link
+     * com.logvex.crystal.config.SettingsCatalog}, so the command and the settings GUI see the
+     * same index.
+     */
+    private void settings(List<String> args) {
+        var catalog = client.settingsCatalog();
+        if (catalog == null) {
+            client.notify("Settings are not available yet", NotificationLevel.WARN);
+            return;
+        }
+        String sub = args.isEmpty() ? "search" : args.get(0).toLowerCase(Locale.ROOT);
+        switch (sub) {
+            case "search", "find", "s" -> {
+                String query = args.size() > 1
+                        ? CommandTokenizer.join(args.subList(1, args.size())) : "";
+                var matches = catalog.search(query);
+                if (matches.isEmpty()) {
+                    client.notify("No settings match '" + query + "'", NotificationLevel.INFO);
+                    return;
+                }
+                int shown = 0;
+                for (var entry : matches) {
+                    if (shown++ >= 20) {
+                        client.notify("\u2026 " + (matches.size() - 20) + " more", NotificationLevel.INFO);
+                        break;
+                    }
+                    client.notify(entry.label() + " = " + entry.setting().displayValue()
+                            + (entry.isDefault() ? "" : " *"), NotificationLevel.INFO);
+                }
+            }
+            case "modified", "changed" -> {
+                var modified = catalog.modified();
+                if (modified.isEmpty()) {
+                    client.notify("No settings differ from their defaults", NotificationLevel.INFO);
+                    return;
+                }
+                int shown = 0;
+                for (var entry : modified) {
+                    if (shown++ >= 25) {
+                        client.notify("\u2026 " + (modified.size() - 25) + " more", NotificationLevel.INFO);
+                        break;
+                    }
+                    client.notify(entry.label() + " = " + entry.setting().displayValue(),
+                            NotificationLevel.INFO);
+                }
+            }
+            case "reset" -> {
+                if (args.size() < 3) {
+                    client.notify("Usage: ; settings reset <module> <setting>", NotificationLevel.WARN);
+                    return;
+                }
+                var module = client.modules().byName(args.get(1));
+                if (module == null) {
+                    client.notify("No module named '" + args.get(1) + "'", NotificationLevel.ERROR);
+                    return;
+                }
+                String settingName = CommandTokenizer.join(args.subList(2, args.size()));
+                for (var entry : catalog.ofModule(module.name())) {
+                    if (entry.setting().name().equalsIgnoreCase(settingName)) {
+                        entry.setting().reset();
+                        client.notify("Reset " + entry.label(), NotificationLevel.SUCCESS);
+                        return;
+                    }
+                }
+                client.notify("No setting '" + settingName + "' on " + module.name(),
+                        NotificationLevel.ERROR);
+            }
+            case "resetmodule" -> {
+                if (args.size() < 2) {
+                    client.notify("Usage: ; settings resetmodule <module>", NotificationLevel.WARN);
+                    return;
+                }
+                var module = client.modules().byName(args.get(1));
+                if (module == null) {
+                    client.notify("No module named '" + args.get(1) + "'", NotificationLevel.ERROR);
+                    return;
+                }
+                int count = catalog.resetModule(module);
+                client.notify("Reset " + count + " setting(s) on " + module.name(),
+                        NotificationLevel.SUCCESS);
+            }
+            case "resetall" -> {
+                int count = catalog.resetAll();
+                client.notify("Reset " + count + " setting(s) across all modules",
+                        NotificationLevel.SUCCESS);
+            }
+            default -> client.notify(
+                    "Usage: ; settings <search|modified|reset|resetmodule|resetall> [args]",
+                    NotificationLevel.WARN);
+        }
+    }
+
+    /** {@code ; nav add <name> <x z> [x z ...]} - builds a straight-leg route from coordinate pairs. */
+    private void addRoute(List<String> args) {
+        if (args.size() < 5) {
+            client.notify("Usage: ; nav add <name> <x z> [x z ...]", NotificationLevel.WARN);
+            return;
+        }
+        String name = args.get(2);
+        java.util.List<com.logvex.crystal.navigation.RoutePlan.Node> nodes = new java.util.ArrayList<>();
+        MinecraftClient mc = MinecraftClient.getInstance();
+        int y = mc.player != null ? (int) Math.floor(mc.player.getY()) : 64;
+        for (int i = 3; i + 1 < args.size(); i += 2) {
+            try {
+                int x = (int) Double.parseDouble(args.get(i));
+                int z = (int) Double.parseDouble(args.get(i + 1));
+                nodes.add(new com.logvex.crystal.navigation.RoutePlan.Node(x, y, z));
+            } catch (NumberFormatException e) {
+                client.notify("Coordinates must be numbers", NotificationLevel.ERROR);
+                return;
+            }
+        }
+        if (nodes.size() < 2) {
+            client.notify("A route needs at least two points", NotificationLevel.WARN);
+            return;
+        }
+        String dimension = mc.world != null ? mc.world.getRegistryKey().getValue().toString() : "";
+        client.routePlans().put(new com.logvex.crystal.navigation.RoutePlan.Route(name, dimension, nodes));
+        client.saveAll();
+        client.notify("Route '" + name + "' saved with " + nodes.size() + " nodes",
+                NotificationLevel.SUCCESS);
+    }
+
+    /** {@code ; bookmark <add|remove|list> [name] [x y z]} - quick bookmarks and last/death position. */
+    private void bookmarkCommand(List<String> args) {
+        var registry = client.waypointRegistry();
+        MinecraftClient mc = MinecraftClient.getInstance();
+        String sub = args.size() > 1 ? args.get(1).toLowerCase(Locale.ROOT) : "list";
+        switch (sub) {
+            case "add", "set" -> {
+                if (args.size() < 3) {
+                    client.notify("Usage: ; bookmark add <name> [x y z]", NotificationLevel.WARN);
+                    return;
+                }
+                String name = args.get(2);
+                int x;
+                int y;
+                int z;
+                if (args.size() >= 6) {
+                    try {
+                        x = (int) Double.parseDouble(args.get(3));
+                        y = (int) Double.parseDouble(args.get(4));
+                        z = (int) Double.parseDouble(args.get(5));
+                    } catch (NumberFormatException e) {
+                        client.notify("Coordinates must be numbers", NotificationLevel.ERROR);
+                        return;
+                    }
+                } else if (mc.player != null) {
+                    x = (int) Math.floor(mc.player.getX());
+                    y = (int) Math.floor(mc.player.getY());
+                    z = (int) Math.floor(mc.player.getZ());
+                } else {
+                    client.notify("Not in a world; supply coordinates", NotificationLevel.ERROR);
+                    return;
+                }
+                String dimension = mc.world != null ? mc.world.getRegistryKey().getValue().toString() : "";
+                registry.putBookmark(new com.logvex.crystal.navigation.WaypointRegistry.Bookmark(
+                        name, x, y, z, dimension));
+                client.saveAll();
+                client.notify("Bookmarked '" + name + "' at " + x + " " + y + " " + z,
+                        NotificationLevel.SUCCESS);
+            }
+            case "remove", "del", "delete", "rm" -> {
+                if (args.size() < 3) {
+                    client.notify("Usage: ; bookmark remove <name>", NotificationLevel.WARN);
+                    return;
+                }
+                if (registry.removeBookmark(args.get(2))) {
+                    client.saveAll();
+                    client.notify("Removed bookmark '" + args.get(2) + "'", NotificationLevel.SUCCESS);
+                } else {
+                    client.notify("No bookmark named '" + args.get(2) + "'", NotificationLevel.ERROR);
+                }
+            }
+            case "death" -> {
+                var death = client.navigation().deathPosition();
+                if (death == null) {
+                    client.notify("No death location recorded this session", NotificationLevel.INFO);
+                } else {
+                    client.notify("Died at " + death.x() + " " + death.y() + " " + death.z()
+                            + (death.dimension().isEmpty() ? "" : " in " + death.dimension()),
+                            NotificationLevel.INFO);
+                }
+            }
+            case "last" -> {
+                var last = client.navigation().lastPosition();
+                client.notify(last == null ? "No position recorded yet"
+                        : "Last at " + last.x() + " " + last.y() + " " + last.z(),
+                        NotificationLevel.INFO);
+            }
+            case "list" -> {
+                var marks = registry.bookmarks();
+                if (marks.isEmpty()) {
+                    client.notify("No bookmarks saved", NotificationLevel.INFO);
+                    return;
+                }
+                for (var mark : marks) {
+                    client.notify(mark.name() + " " + mark.x() + " " + mark.y() + " " + mark.z(),
+                            NotificationLevel.INFO);
+                }
+            }
+            default -> client.notify("Usage: ; bookmark <add|remove|list|death|last>",
+                    NotificationLevel.WARN);
+        }
+    }
+
+    /**
+     * {@code ; build <list|place|move|rotate|mirror|undo|redo|save|load|clear|materials> ...} -
+     * the blueprint planner. Every subcommand edits the shared {@link
+     * com.logvex.crystal.world.build.BlueprintLibrary} that the BuildPlanner module owns, so the
+     * command surface and the GUI act on exactly the same plan.
+     */
+    private void worldBuild(List<String> args) {
+        var module = client.modules().byClass(com.logvex.crystal.module.world.BuildPlannerModule.class);
+        if (module == null) {
+            client.notify("BuildPlanner module is unavailable", NotificationLevel.ERROR);
+            return;
+        }
+        var library = module.library();
+        String sub = args.size() > 1 ? args.get(1).toLowerCase(Locale.ROOT) : "list";
+        MinecraftClient mc = MinecraftClient.getInstance();
+        switch (sub) {
+            case "list", "status" -> {
+                client.notify(library.schematics().size() + " schematic(s), "
+                        + library.placements().size() + " placement(s), "
+                        + library.plannedBlockCount() + " planned block(s)", NotificationLevel.INFO);
+                for (String line : library.describePlan()) {
+                    client.notify("  " + line, NotificationLevel.INFO);
+                }
+                if (library.placements().isEmpty()) {
+                    client.notify("No placements. Use '; build place <schematic>'", NotificationLevel.INFO);
+                }
+            }
+            case "schematics" -> {
+                for (var schematic : library.schematics()) {
+                    client.notify("  " + schematic.describe(), NotificationLevel.INFO);
+                }
+            }
+            case "place" -> {
+                if (args.size() < 3) {
+                    client.notify("Usage: ; build place <schematic> [x y z]", NotificationLevel.WARN);
+                    return;
+                }
+                String name = args.get(2);
+                if (library.schematic(name).isEmpty()) {
+                    client.notify("Unknown schematic '" + name + "'", NotificationLevel.WARN);
+                    return;
+                }
+                int x = mc.player == null ? 0 : mc.player.getBlockX();
+                int y = mc.player == null ? 64 : mc.player.getBlockY();
+                int z = mc.player == null ? 0 : mc.player.getBlockZ();
+                if (args.size() >= 6) {
+                    x = parseInt(args.get(3), x);
+                    y = parseInt(args.get(4), y);
+                    z = parseInt(args.get(5), z);
+                }
+                var placement = library.place(name, x, y, z);
+                module.save();
+                client.notify("Placed " + placement.describe(), NotificationLevel.SUCCESS);
+            }
+            case "move" -> {
+                if (args.size() < 4) {
+                    client.notify("Usage: ; build move <id> <dx> <dy> <dz>", NotificationLevel.WARN);
+                    return;
+                }
+                if (!library.move(args.get(2), parseInt(args.get(3), 0),
+                        args.size() > 4 ? parseInt(args.get(4), 0) : 0,
+                        args.size() > 5 ? parseInt(args.get(5), 0) : 0)) {
+                    client.notify("No placement '" + args.get(2) + "'", NotificationLevel.WARN);
+                    return;
+                }
+                client.notify("Moved " + args.get(2), NotificationLevel.SUCCESS);
+            }
+            case "rotate" -> {
+                if (args.size() < 3 || !library.rotate(args.get(2))) {
+                    client.notify("Usage: ; build rotate <id>", NotificationLevel.WARN);
+                    return;
+                }
+                client.notify("Rotated " + args.get(2), NotificationLevel.SUCCESS);
+            }
+            case "mirror" -> {
+                if (args.size() < 3 || !library.mirror(args.get(2))) {
+                    client.notify("Usage: ; build mirror <id>", NotificationLevel.WARN);
+                    return;
+                }
+                client.notify("Mirrored " + args.get(2), NotificationLevel.SUCCESS);
+            }
+            case "remove", "delete" -> {
+                if (args.size() < 3 || !library.remove(args.get(2))) {
+                    client.notify("Usage: ; build remove <id>", NotificationLevel.WARN);
+                    return;
+                }
+                client.notify("Removed " + args.get(2), NotificationLevel.SUCCESS);
+            }
+            case "undo" -> {
+                String label = library.undo();
+                client.notify(label == null ? "Nothing to undo" : "Undid " + label,
+                        label == null ? NotificationLevel.INFO : NotificationLevel.SUCCESS);
+            }
+            case "redo" -> {
+                String label = library.redo();
+                client.notify(label == null ? "Nothing to redo" : "Redid " + label,
+                        label == null ? NotificationLevel.INFO : NotificationLevel.SUCCESS);
+            }
+            case "save" -> client.notify(module.save() ? "Plan saved" : "Save failed",
+                    module.save() ? NotificationLevel.SUCCESS : NotificationLevel.ERROR);
+            case "clear" -> {
+                for (var placement : new java.util.ArrayList<>(library.placements())) {
+                    library.remove(placement.id());
+                }
+                client.notify("Plan cleared (schematics kept)", NotificationLevel.SUCCESS);
+            }
+            case "materials" -> {
+                var totals = library.plannedMaterials();
+                if (totals.isEmpty()) {
+                    client.notify("No materials planned", NotificationLevel.INFO);
+                    return;
+                }
+                var combined = com.logvex.crystal.world.build.Schematic.of("plan",
+                        library.placements().stream()
+                                .map(library::effectiveSchematic)
+                                .filter(java.util.Objects::nonNull)
+                                .flatMap(s -> s.blocks().stream())
+                                .toList());
+                var missing = com.logvex.crystal.world.build.BuildPlanner.missing(combined,
+                        item -> countItemInInventory(mc, item));
+                for (var entry : totals.entrySet()) {
+                    int deficit = missing.getOrDefault(entry.getKey(), 0);
+                    client.notify("  " + entry.getKey() + " x" + entry.getValue()
+                            + (deficit > 0 ? " (missing " + deficit + ")" : " (ready)"),
+                            deficit > 0 ? NotificationLevel.WARN : NotificationLevel.INFO);
+                }
+            }
+            default -> client.notify("Usage: ; build <list|schematics|place|move|rotate|mirror|"
+                    + "remove|undo|redo|save|clear|materials>", NotificationLevel.WARN);
+        }
+    }
+
+    private static int parseInt(String text, int fallback) {
+        try {
+            return Integer.parseInt(text.trim());
+        } catch (RuntimeException e) {
+            return fallback;
+        }
+    }
+
+    /** How many of an item id the player's own inventory holds, for the material calculator. */
+    private static int countItemInInventory(MinecraftClient mc, String itemId) {
+        if (mc == null || mc.player == null) {
+            return 0;
+        }
+        int count = 0;
+        for (int slot = 0; slot < com.logvex.crystal.player.InventoryUtil.MAIN_SIZE; slot++) {
+            var stack = mc.player.getInventory().getStack(slot);
+            if (!stack.isEmpty() && net.minecraft.registry.Registries.ITEM.getId(stack.getItem())
+                    .toString().equals(itemId)) {
+                count += stack.getCount();
+            }
+        }
+        return count;
     }
 
     /**
@@ -1546,6 +2097,8 @@ public final class CommandManager {
                 try {
                     boolean ok = service.save(name, false);
                     if (ok) {
+                        client.profileHistory().record(
+                                com.logvex.crystal.config.ProfileHistory.Action.SAVED, name, "");
                         client.notify("Saved profile '" + name + "'", NotificationLevel.SUCCESS);
                     } else {
                         client.notify("Profile '" + name + "' exists; use ; profile overwrite <name>",
@@ -1563,6 +2116,8 @@ public final class CommandManager {
                 String name = CommandTokenizer.join(args.subList(1, args.size()));
                 try {
                     service.save(name, true);
+                    client.profileHistory().record(
+                            com.logvex.crystal.config.ProfileHistory.Action.SAVED, name, "overwrite");
                     client.notify("Overwrote profile '" + name + "'", NotificationLevel.SUCCESS);
                 } catch (java.io.IOException e) {
                     client.notify("Save failed: " + e.getMessage(), NotificationLevel.ERROR);
@@ -1586,6 +2141,8 @@ public final class CommandManager {
                 }
                 if (service.apply(name)) {
                     client.theme().update();
+                    client.profileHistory().record(
+                            com.logvex.crystal.config.ProfileHistory.Action.LOADED, name, "");
                     client.notify("Loaded profile '" + name + "'", NotificationLevel.SUCCESS);
                 } else {
                     client.notify("No profile named '" + name + "'", NotificationLevel.ERROR);
@@ -1596,13 +2153,154 @@ public final class CommandManager {
                     client.notify("Usage: ; profile delete <name>", NotificationLevel.WARN);
                     return;
                 }
-                boolean ok = service.profiles().delete(CommandTokenizer.join(args.subList(1, args.size())));
+                String name = CommandTokenizer.join(args.subList(1, args.size()));
+                boolean ok = service.profiles().delete(name);
+                if (ok && client.profileMetadata() != null) {
+                    client.profileMetadata().remove(name);
+                    client.profileMetadata().save();
+                    client.profileHistory().record(
+                            com.logvex.crystal.config.ProfileHistory.Action.DELETED, name, "");
+                }
                 client.notify(ok ? "Deleted profile" : "No such profile",
                         ok ? NotificationLevel.SUCCESS : NotificationLevel.ERROR);
             }
+            case "rename", "mv" -> {
+                if (args.size() < 3) {
+                    client.notify("Usage: ; profile rename <old> <new>", NotificationLevel.WARN);
+                    return;
+                }
+                try {
+                    if (service.profiles().rename(args.get(1), args.get(2))) {
+                        if (client.profileMetadata() != null) {
+                            client.profileMetadata().rename(args.get(1), args.get(2));
+                            client.profileMetadata().save();
+                            client.profileHistory().record(
+                                    com.logvex.crystal.config.ProfileHistory.Action.RENAMED,
+                                    args.get(2), "from " + args.get(1));
+                        }
+                        client.notify("Renamed to '" + args.get(2) + "'", NotificationLevel.SUCCESS);
+                    } else {
+                        client.notify("Rename refused (missing source or name in use)",
+                                NotificationLevel.ERROR);
+                    }
+                } catch (java.io.IOException e) {
+                    client.notify("Rename failed: " + e.getMessage(), NotificationLevel.ERROR);
+                }
+            }
+            case "duplicate", "dup", "copy" -> {
+                if (args.size() < 2) {
+                    client.notify("Usage: ; profile duplicate <name> [newname]", NotificationLevel.WARN);
+                    return;
+                }
+                String source = args.get(1);
+                String target = args.size() >= 3 ? args.get(2) : source + "-copy";
+                try {
+                    if (service.profiles().duplicate(source, target)) {
+                        if (client.profileMetadata() != null) {
+                            var meta = client.profileMetadata().of(target);
+                            var srcMeta = client.profileMetadata().peek(source);
+                            if (srcMeta != null) {
+                                meta.description = srcMeta.description;
+                                meta.category = srcMeta.category;
+                                meta.tags.addAll(srcMeta.tags);
+                                meta.context = srcMeta.context;
+                            }
+                            client.profileMetadata().save();
+                            client.profileHistory().record(
+                                    com.logvex.crystal.config.ProfileHistory.Action.DUPLICATED,
+                                    target, "from " + source);
+                        }
+                        client.notify("Duplicated '" + source + "' as '" + target + "'",
+                                NotificationLevel.SUCCESS);
+                    } else {
+                        client.notify("Duplicate refused (missing source or name in use)",
+                                NotificationLevel.ERROR);
+                    }
+                } catch (java.io.IOException e) {
+                    client.notify("Duplicate failed: " + e.getMessage(), NotificationLevel.ERROR);
+                }
+            }
+            case "describe", "desc" -> {
+                if (args.size() < 3) {
+                    client.notify("Usage: ; profile describe <name> <text>", NotificationLevel.WARN);
+                    return;
+                }
+                var meta = client.profileMetadata().of(args.get(1));
+                meta.description = CommandTokenizer.join(args.subList(2, args.size()));
+                client.profileMetadata().save();
+                client.notify("Updated description for '" + args.get(1) + "'", NotificationLevel.SUCCESS);
+            }
+            case "category", "cat" -> {
+                if (args.size() < 3) {
+                    client.notify("Usage: ; profile category <name> <category>", NotificationLevel.WARN);
+                    return;
+                }
+                client.profileMetadata().of(args.get(1)).category = args.get(2);
+                client.profileMetadata().save();
+                client.notify("Category set", NotificationLevel.SUCCESS);
+            }
+            case "context", "server" -> {
+                if (args.size() < 3) {
+                    client.notify("Usage: ; profile context <name> <server-or-world>", NotificationLevel.WARN);
+                    return;
+                }
+                client.profileMetadata().of(args.get(1)).context = args.get(2);
+                client.profileMetadata().save();
+                client.notify("Context set", NotificationLevel.SUCCESS);
+            }
+            case "default" -> {
+                if (args.size() < 2) {
+                    String current = client.profileMetadata().defaultProfile();
+                    client.notify(current.isEmpty() ? "No default profile set"
+                            : "Default profile: " + current, NotificationLevel.INFO);
+                    return;
+                }
+                client.profileMetadata().setDefault(args.get(1));
+                client.profileMetadata().save();
+                client.profileHistory().record(com.logvex.crystal.config.ProfileHistory.Action.DEFAULT_SET,
+                        args.get(1), "");
+                client.notify("Default profile set to '" + args.get(1) + "'", NotificationLevel.SUCCESS);
+            }
+            case "info" -> {
+                if (args.size() < 2) {
+                    client.notify("Usage: ; profile info <name>", NotificationLevel.WARN);
+                    return;
+                }
+                var meta = client.profileMetadata().peek(args.get(1));
+                if (meta == null) {
+                    client.notify("No metadata for '" + args.get(1) + "'", NotificationLevel.INFO);
+                    return;
+                }
+                client.notify(args.get(1) + " [" + meta.category + "]"
+                        + (meta.isDefault ? " (default)" : ""), NotificationLevel.INFO);
+                if (!meta.description.isBlank()) {
+                    client.notify("  " + meta.description, NotificationLevel.INFO);
+                }
+                if (!meta.context.isBlank()) {
+                    client.notify("  context: " + meta.context, NotificationLevel.INFO);
+                }
+            }
+            case "history" -> {
+                var entries = client.profileHistory().recent();
+                if (entries.isEmpty()) {
+                    client.notify("No profile history", NotificationLevel.INFO);
+                    return;
+                }
+                int shown = 0;
+                for (var entry : entries) {
+                    if (shown++ >= 15) {
+                        break;
+                    }
+                    client.notify(entry.action() + " " + entry.profile()
+                            + (entry.detail().isEmpty() ? "" : " \u00b7 " + entry.detail()),
+                            NotificationLevel.INFO);
+                }
+            }
             case "starters" -> client.notify("Starters: "
                     + String.join(", ", com.logvex.crystal.config.StarterProfiles.names()), NotificationLevel.INFO);
-            default -> client.notify("Usage: ; profile <list|save|load|delete|starters|gui> [name]",
+            default -> client.notify(
+                    "Usage: ; profile <list|save|overwrite|load|delete|rename|duplicate|describe|"
+                            + "category|context|default|info|history|starters|gui> [args]",
                     NotificationLevel.WARN);
         }
     }
@@ -2043,8 +2741,154 @@ public final class CommandManager {
                         NotificationLevel.SUCCESS);
             }
             case "add" -> addAutomation(args);
+            case "hub", "queue", "tasks" -> automationHub(args);
+            case "pause" -> automationControl("pause");
+            case "resume" -> automationControl("resume");
+            case "stop", "emergency" -> automationControl("stop");
+            case "modules" -> automationModules();
+            case "hotbar" -> automationHotbar(args);
+            case "restock" -> automationRestock(args);
+            case "gui", "panel" -> openAutomationPanel();
             default -> client.notify("Usage: ; automation <status|on|off|list|history|"
-                    + "add|remove|toggle>", NotificationLevel.WARN);
+                    + "add|remove|toggle|hub|pause|resume|stop|modules|hotbar|restock>",
+                    NotificationLevel.WARN);
+        }
+    }
+
+    /** {@code ; automation modules} - the status line of every automation-category module. */
+    private void automationModules() {
+        int shown = 0;
+        for (com.logvex.crystal.module.Module module : client.modules().all()) {
+            if (module.category() != com.logvex.crystal.module.Category.AUTOMATION) {
+                continue;
+            }
+            String status = module instanceof com.logvex.crystal.automation.AutomationModule automationModule
+                    ? automationModule.statusLine() : "";
+            client.notify((module.isEnabled() ? "\u2713 " : "\u2717 ") + module.name()
+                    + (status.isEmpty() ? "" : " - " + status), NotificationLevel.INFO);
+            shown++;
+        }
+        client.notify(shown + " automation module(s)", NotificationLevel.INFO);
+    }
+
+    /** {@code ; automation hub} - the live task queue and inventory arbiter. */
+    private void automationHub(List<String> args) {
+        var hub = client.automationService();
+        if (hub == null) {
+            client.notify("Automation hub unavailable", NotificationLevel.WARN);
+            return;
+        }
+        if (args.size() > 1 && args.get(1).equalsIgnoreCase("history")) {
+            var history = hub.queue().history();
+            if (history.isEmpty()) {
+                client.notify("No task history", NotificationLevel.INFO);
+                return;
+            }
+            for (var record : history) {
+                client.notify("  " + record.describe(), NotificationLevel.INFO);
+            }
+            return;
+        }
+        client.notify(hub.summary(), hub.isPaused() ? NotificationLevel.WARN : NotificationLevel.INFO);
+        var current = hub.queue().current();
+        if (current.isPresent()) {
+            var entry = current.get();
+            client.notify("current: " + entry.name() + " " + entry.progressDone() + "/"
+                    + entry.progressTotal() + " " + entry.note(), NotificationLevel.INFO);
+        }
+        var transaction = hub.transactions().running();
+        if (transaction.isPresent()) {
+            var active = transaction.get();
+            client.notify("inventory: " + active.transaction().description()
+                    + " step " + active.currentStep(), NotificationLevel.INFO);
+        }
+    }
+
+    /** {@code ; automation pause|resume|stop} - the global controls. */
+    private void automationControl(String action) {
+        var hub = client.automationService();
+        if (hub == null) {
+            client.notify("Automation hub unavailable", NotificationLevel.WARN);
+            return;
+        }
+        switch (action) {
+            case "pause" -> {
+                hub.setPaused(true);
+                client.notify("Automation paused", NotificationLevel.INFO);
+            }
+            case "resume" -> {
+                if (hub.emergencyStopped()) {
+                    hub.clearEmergencyStop();
+                }
+                hub.setPaused(false);
+                client.notify("Automation resumed", NotificationLevel.SUCCESS);
+            }
+            case "stop" -> {
+                int cancelled = hub.emergencyStop();
+                client.notify("Emergency stop: " + cancelled + " task(s) cancelled",
+                        NotificationLevel.WARN);
+            }
+            default -> {
+                // unreachable
+            }
+        }
+    }
+
+    /** {@code ; automation hotbar <capture|apply|list> [name]} - hotbar presets. */
+    private void automationHotbar(List<String> args) {
+        var module = client.modules().byName("HotbarPresets");
+        if (!(module instanceof com.logvex.crystal.module.automation.HotbarPresetsAutomation presets)) {
+            client.notify("HotbarPresets module unavailable", NotificationLevel.WARN);
+            return;
+        }
+        String sub = args.size() > 1 ? args.get(1).toLowerCase(java.util.Locale.ROOT) : "list";
+        switch (sub) {
+            case "list" -> {
+                if (presets.store().size() == 0) {
+                    client.notify("No hotbar presets", NotificationLevel.INFO);
+                    return;
+                }
+                client.notify("Presets: " + String.join(", ", presets.store().names()),
+                        NotificationLevel.INFO);
+            }
+            case "capture" -> {
+                if (args.size() < 3) {
+                    client.notify("Usage: ; automation hotbar capture <name>", NotificationLevel.WARN);
+                    return;
+                }
+                client.notify(presets.captureCurrent(args.get(2)), NotificationLevel.SUCCESS);
+            }
+            case "apply" -> {
+                if (args.size() < 3) {
+                    client.notify("Usage: ; automation hotbar apply <name>", NotificationLevel.WARN);
+                    return;
+                }
+                client.notify(presets.apply(args.get(2)), NotificationLevel.SUCCESS);
+            }
+            default -> client.notify("Usage: ; automation hotbar <list|capture|apply> [name]",
+                    NotificationLevel.WARN);
+        }
+    }
+
+    /** {@code ; automation gui} - opens the Automation panel screen. */
+    private void openAutomationPanel() {
+        var screen = new com.logvex.crystal.gui.AutomationPanelScreen(
+                client.theme(), client.modules(), client.automationService());
+        net.minecraft.client.MinecraftClient.getInstance().setScreen(screen);
+    }
+
+    /** {@code ; automation restock [plan|report]} - the item restock planner. */
+    private void automationRestock(List<String> args) {
+        var module = client.modules().byName("RestockPlanner");
+        if (!(module instanceof com.logvex.crystal.module.automation.RestockPlannerAutomation restock)) {
+            client.notify("RestockPlanner module unavailable", NotificationLevel.WARN);
+            return;
+        }
+        String sub = args.size() > 1 ? args.get(1).toLowerCase(java.util.Locale.ROOT) : "report";
+        if (sub.equals("plan") || sub.equals("run")) {
+            client.notify(restock.planAndRun(), NotificationLevel.SUCCESS);
+        } else {
+            client.notify(restock.report(), NotificationLevel.INFO);
         }
     }
 
@@ -2156,6 +3000,87 @@ public final class CommandManager {
         diagnostics.report();
     }
 
+    /**
+     * {@code ; perf [findings|history|clear]} - the performance dashboard from the command
+     * surface. Reads the same measured numbers the Performance workspace charts, so nothing
+     * is recomputed here.
+     */
+    private void perf(List<String> args) {
+        var center = client.commandCenter();
+        if (center == null) {
+            client.notify("Performance service unavailable", NotificationLevel.WARN);
+            return;
+        }
+        String sub = args.isEmpty() ? "summary" : args.get(0).toLowerCase(Locale.ROOT);
+        var report = center.performance();
+        switch (sub) {
+            case "findings", "issues" -> {
+                if (report.findings().isEmpty()) {
+                    client.notify("No performance findings \u2661", NotificationLevel.SUCCESS);
+                    return;
+                }
+                for (var finding : report.findings()) {
+                    client.notify("[" + finding.severity().name() + "] " + finding.describe(),
+                            finding.severity() == com.logvex.crystal.commandcenter.HealthStatus.CRITICAL
+                                    ? NotificationLevel.ERROR : NotificationLevel.INFO);
+                }
+            }
+            case "history" -> {
+                var history = client.performanceHistory();
+                client.notify("History: " + history.sampleCount() + " samples over "
+                        + history.intervalMillis() + "ms interval", NotificationLevel.INFO);
+                for (var series : history.populated()) {
+                    client.notify("  " + series.label() + ": " + series.size() + " points ("
+                            + series.unit() + ")", NotificationLevel.INFO);
+                }
+            }
+            case "clear" -> {
+                client.performanceHistory().clear();
+                client.notify("Performance history cleared", NotificationLevel.SUCCESS);
+            }
+            default -> client.notify(report.summary(), NotificationLevel.INFO);
+        }
+    }
+
+    /**
+     * {@code ; report [export]} - the full diagnostics report. Without {@code export} it prints
+     * a roll-up and the first lines; with {@code export} it writes the whole document to
+     * {@code <config>/logvex-crystal/diagnostics.txt}.
+     */
+    private void report(List<String> args) {
+        var center = client.commandCenter();
+        var diagnostics = client.diagnostics();
+        if (center == null || diagnostics == null) {
+            client.notify("Diagnostics unavailable", NotificationLevel.WARN);
+            return;
+        }
+        var report = diagnostics.build(center.performance());
+        boolean export = !args.isEmpty() && args.get(0).equalsIgnoreCase("export");
+        if (export) {
+            java.nio.file.Path file = com.logvex.crystal.config.ConfigPaths.directory()
+                    .resolve("diagnostics.txt");
+            try {
+                diagnostics.export(report, file);
+                client.notify("Diagnostics written to " + file.getFileName(), NotificationLevel.SUCCESS);
+            } catch (java.io.IOException e) {
+                client.notify("Export failed: " + e.getMessage(), NotificationLevel.ERROR);
+            }
+            return;
+        }
+        client.notify(report.summary(), NotificationLevel.INFO);
+        var lines = report.lines();
+        int shown = 0;
+        for (String line : lines) {
+            if (shown++ >= 16) {
+                client.notify("\u2026 use ; report export for the full document", NotificationLevel.INFO);
+                break;
+            }
+            if (!line.isBlank()) {
+                client.notify(line, NotificationLevel.INFO);
+            }
+        }
+    }
+
     private void crystalAnalysis() {
         var module = client.modules().byName("AutoCrystal");
         if (!(module instanceof com.logvex.crystal.module.combat.AutoCrystalModule autoCrystal)) {
@@ -2212,12 +3137,17 @@ public final class CommandManager {
                 "; opacity|gradient|glow|scale|animation <0..1>",
                 "; radius <0..12> | decorations|cat|motion|blur|cursor|sounds|splash <on|off>",
                 "; hud <element> <on|off> | hudedit | gui",
+                "; hud save <name> | load <name> | list | delete <name> | export <name> | import",
                 "; category <name> | favorites | recent | appearance | keybinds",
                 "; profile <list|save|load|delete|starters|gui> [name]",
+                "; settings <search|modified|reset|resetmodule|resetall> [query]",
+                "; perf [findings|history|clear] | report [export]",
                 "; favorite <module>",
                 "; waypoint <add|remove|list|clear> [name] [x y z]",
                 "; baritone <status|gui|goto <x y z>|near <x y z> [r]|wp <name>|here|cancel|pause|resume|paused|set|settings>",
                 "; world | entities <list|count|search <text>> | browser",
+                "; tools <search|area> | build <list|place|move|rotate|mirror|undo|redo|materials>",
+                "; nav <list|add|remove|start|stop|pause|resume|progress|history> | bookmark <add|remove|list|death|last>",
                 "; wi <status|gui|find <text>|list|targets|ask <q>|confirm|dismiss|delete|export|import|clear>",
                 "; notifications <list|history|clear|sound|duration|scale|position|duplicates|level|test>",
                 "; context <on|off|list|add|remove|clear|cooldown>",

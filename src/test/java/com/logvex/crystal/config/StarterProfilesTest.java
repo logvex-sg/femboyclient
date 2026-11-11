@@ -39,4 +39,42 @@ class StarterProfilesTest {
         assertEquals(ProfileManager.SCHEMA_VERSION, json.get("schema").getAsInt());
         assertNotNull(ProfileManager.fromJson(json));
     }
+
+    @Test
+    void everyStarterReferencesRealRegisteredModules() {
+        var manager = new com.logvex.crystal.module.ModuleManager();
+        com.logvex.crystal.module.ModuleRegistry.registerAll(manager);
+        for (String name : StarterProfiles.names()) {
+            ProfileManager.Profile profile = StarterProfiles.build(name);
+            for (String module : profile.modules().keySet()) {
+                assertNotNull(manager.byName(module),
+                        "starter '" + name + "' references unknown module '" + module + "'");
+            }
+        }
+    }
+
+    @Test
+    void theRequestedPresetCatalogueIsPresent() {
+        for (String name : new String[]{"General Survival", "Creative Building", "Exploration",
+                "PvP", "Performance", "Minimal HUD", "Full HUD", "Accessibility"}) {
+            assertTrue(StarterProfiles.names().contains(name), "missing preset: " + name);
+            assertNotNull(StarterProfiles.build(name), "preset did not build: " + name);
+        }
+    }
+
+    @Test
+    void theAccessibilityPresetCalmsMotionAndScalesTheUi() {
+        var appearance = StarterProfiles.build("Accessibility").appearance();
+        assertTrue(appearance.get("reducedMotion").getAsBoolean());
+        assertEquals(0.0f, appearance.get("animationSpeed").getAsFloat());
+        assertEquals(1.25f, appearance.get("uiScale").getAsFloat());
+    }
+
+    @Test
+    void thePerformancePresetDisablesTheCostlyEffects() {
+        var appearance = StarterProfiles.build("Performance").appearance();
+        assertTrue(!appearance.get("blur").getAsBoolean());
+        assertEquals(0.0f, appearance.get("gradientIntensity").getAsFloat());
+        assertEquals(0.0f, appearance.get("glowIntensity").getAsFloat());
+    }
 }

@@ -20,6 +20,7 @@ public final class CommandCenterPreferences {
         AI("AI assistant"),
         MODULES("Modules"),
         PERFORMANCE("Performance"),
+        DIAGNOSTICS("Diagnostics"),
         BARITONE("Baritone"),
         CONFIG("Configuration"),
         CRASHES("Crashes"),

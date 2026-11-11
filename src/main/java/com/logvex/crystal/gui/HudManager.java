@@ -38,6 +38,8 @@ public final class HudManager {
     private final Map<String, HudElement> elements = new LinkedHashMap<>();
     private final List<OverlayRenderer> overlays = new ArrayList<>();
     private final List<WorldEspProvider> worldEspProviders = new ArrayList<>();
+    /** Reusable draw-order buffer, refilled each frame; avoids per-frame allocation. */
+    private final List<HudElement> drawOrder = new ArrayList<>();
     private final ModuleManager modules;
     private final ThemeManager theme;
     private final HudLayout layout = new HudLayout();
@@ -88,9 +90,29 @@ public final class HudManager {
                 HudManager::potionLines));
         register(new SimpleHudElement("speed", HudElement.Column.RIGHT, 70, false,
                 HudManager::speedLines));
+        register(new SimpleHudElement("direction", HudElement.Column.LEFT, 66, false,
+                client -> client.player == null ? new String[0] : new String[]{
+                        "facing " + com.logvex.crystal.world.WorldInfo.facing(client.player.getYaw()),
+                        com.logvex.crystal.gui.hud.HudReadouts.yawLine(client.player.getYaw())}));
+        register(new SimpleHudElement("totems", HudElement.Column.RIGHT, 74, false,
+                HudManager::totemLines));
+        register(new SimpleHudElement("clock", HudElement.Column.RIGHT, 60, false,
+                client -> new String[]{com.logvex.crystal.gui.hud.HudReadouts.clock(
+                        System.currentTimeMillis(), true)}));
+        register(new SimpleHudElement("server", HudElement.Column.LEFT, 96, false,
+                HudManager::serverLines));
+        register(new SimpleHudElement("inventory", HudElement.Column.RIGHT, 92, false,
+                HudManager::inventoryLines));
+        register(new SimpleHudElement("position-history", HudElement.Column.LEFT, 100, false,
+                HudManager::positionHistoryLines));
+        register(new SimpleHudElement("item-counts", HudElement.Column.RIGHT, 96, false,
+                HudManager::itemCountLines));
+        register(new SimpleHudElement("combat-stats", HudElement.Column.RIGHT, 84, false,
+                HudManager::combatLines));
         register(new com.logvex.crystal.gui.hud.CrosshairHudElement());
         register(new com.logvex.crystal.gui.hud.SessionHudElement());
         register(new com.logvex.crystal.gui.hud.EntityCountHudElement());
+        register(new com.logvex.crystal.gui.hud.KeybindListHudElement(modules));
         register(new com.logvex.crystal.gui.hud.WorldInfoHudElement());
         register(new KeystrokesHudElement());
         register(new com.logvex.crystal.gui.hud.BaritoneHudElement());
@@ -109,6 +131,9 @@ public final class HudManager {
         register(new com.logvex.crystal.gui.hud.IntelligenceHudElement());
         // The intelligence readout is opt-in: the WorldScanner module reveals it once it has data.
         layout.entry(com.logvex.crystal.gui.hud.IntelligenceHudElement.ID).visible = false;
+        register(new com.logvex.crystal.gui.hud.CompassHudElement());
+        // The compass readout is opt-in: the Navigator module reveals it.
+        layout.entry(com.logvex.crystal.gui.hud.CompassHudElement.ID).visible = false;
     }
 
     private static String pingText(int ping) {
@@ -186,6 +211,90 @@ public final class HudManager {
         var velocity = client.player.getVelocity();
         double bps = Math.sqrt(velocity.x * velocity.x + velocity.z * velocity.z) * 20.0;
         return new String[]{String.format("%.2f bps", bps)};
+    }
+
+    /** Held totem count: main inventory (including the offhand) plus any totem in the offhand. */
+    private static String[] totemLines(MinecraftClient client) {
+        if (client.player == null) {
+            return new String[0];
+        }
+        int total = com.logvex.crystal.player.InventoryUtil.count(client, net.minecraft.item.Items.TOTEM_OF_UNDYING);
+        if (client.player.getOffHandStack().isOf(net.minecraft.item.Items.TOTEM_OF_UNDYING)) {
+            total += client.player.getOffHandStack().getCount();
+        }
+        return new String[]{com.logvex.crystal.gui.hud.HudReadouts.totemLine(total)};
+    }
+
+    /** Server host and ping, or a singleplayer marker when there is no server entry. */
+    private static String[] serverLines(MinecraftClient client) {
+        if (client.player == null) {
+            return new String[0];
+        }
+        var entry = client.getCurrentServerEntry();
+        String host = com.logvex.crystal.gui.hud.HudReadouts.serverLabel(entry == null ? null : entry.address);
+        return new String[]{host, "ping " + com.logvex.crystal.world.WorldInfo.ping(client) + " ms"};
+    }
+
+    /** Inventory fill: how many of the 36 main slots hold an item, and how many are free. */
+    private static String[] inventoryLines(MinecraftClient client) {
+        if (client.player == null) {
+            return new String[0];
+        }
+        var inventory = client.player.getInventory();
+        int used = 0;
+        for (int slot = 0; slot < com.logvex.crystal.player.InventoryUtil.MAIN_SIZE; slot++) {
+            if (!inventory.getStack(slot).isEmpty()) {
+                used++;
+            }
+        }
+        return new String[]{com.logvex.crystal.gui.hud.HudReadouts.inventoryLine(
+                used, com.logvex.crystal.player.InventoryUtil.MAIN_SIZE)};
+    }
+
+    /** The last few sampled positions from the navigation service, newest first. */
+    private static String[] positionHistoryLines(MinecraftClient client) {
+        if (client.player == null) {
+            return new String[0];
+        }
+        var recent = com.logvex.crystal.client.CrystalClient.get().navigation().recentPositions();
+        int shown = Math.min(3, recent.size());
+        String[] lines = new String[shown];
+        for (int i = 0; i < shown; i++) {
+            var pos = recent.get(i);
+            lines[i] = com.logvex.crystal.gui.hud.HudReadouts.positionLine(pos.x(), pos.y(), pos.z());
+        }
+        return lines;
+    }
+
+    /** Counts of the crystal-PvP items the player is carrying in the main inventory. */
+    private static String[] itemCountLines(MinecraftClient client) {
+        if (client.player == null) {
+            return new String[0];
+        }
+        int totems = com.logvex.crystal.player.InventoryUtil.count(client,
+                net.minecraft.item.Items.TOTEM_OF_UNDYING);
+        int crystals = com.logvex.crystal.player.InventoryUtil.count(client,
+                net.minecraft.item.Items.END_CRYSTAL);
+        int obsidian = com.logvex.crystal.player.InventoryUtil.count(client,
+                net.minecraft.item.Items.OBSIDIAN);
+        int pearls = com.logvex.crystal.player.InventoryUtil.count(client,
+                net.minecraft.item.Items.ENDER_PEARL);
+        return new String[]{
+                "crystals " + crystals,
+                "obsidian " + obsidian,
+                "totems " + totems,
+                "pearls " + pearls};
+    }
+
+    /** Crystal damage to the current target, to the player, and whether it is lethal. */
+    private static String[] combatLines(MinecraftClient client) {
+        if (client.player == null) {
+            return new String[0];
+        }
+        var combat = com.logvex.crystal.client.CrystalClient.get().combat();
+        double toTarget = combat.currentTarget() == null ? -1 : combat.crystalDamageToTarget();
+        return new String[]{com.logvex.crystal.gui.hud.HudReadouts.combatLine(
+                toTarget, combat.crystalDamageToSelf(), combat.targetLethal())};
     }
 
     public void register(HudElement element) {
@@ -307,7 +416,7 @@ public final class HudManager {
         int screenWidth = context.getScaledWindowWidth();
         int leftY = leftMargin;
         int rightY = rightMargin;
-        for (HudElement element : elements.values()) {
+        for (HudElement element : drawOrder()) {
             HudLayout.Entry entry = layout.entry(element.id());
             if (!entry.visible) {
                 continue;
@@ -328,7 +437,7 @@ public final class HudManager {
                 }
                 renderScaled(context, element, entry, client, tickDelta, x, y, right);
                 if (!entry.customPosition) {
-                    int advance = element.height(client) + 2;
+                    int advance = heightOf(element, entry, client) + 2;
                     if (right) {
                         rightY += advance;
                     } else {
@@ -354,6 +463,38 @@ public final class HudManager {
     }
 
     /**
+     * The elements in draw order: sorted by layer (ascending), then by registration order so
+     * the default layout is unchanged. The buffer is reused between frames to avoid a
+     * per-frame allocation; it is only rebuilt when a layer actually differs from insertion
+     * order.
+     */
+    public List<HudElement> drawOrder() {
+        drawOrder.clear();
+        drawOrder.addAll(elements.values());
+        boolean anyLayer = false;
+        for (HudElement element : drawOrder) {
+            if (layout.entry(element.id()).layer != 0) {
+                anyLayer = true;
+                break;
+            }
+        }
+        if (anyLayer) {
+            drawOrder.sort((a, b) -> Integer.compare(layout.entry(a.id()).layer, layout.entry(b.id()).layer));
+        }
+        return drawOrder;
+    }
+
+    /** The effective height of an element, honouring a per-element override when set. */
+    public int heightOf(HudElement element, HudLayout.Entry entry, MinecraftClient client) {
+        return entry.height > 0 ? entry.height : element.height(client);
+    }
+
+    /** The effective width of an element, honouring a per-element override when set. */
+    public int widthOf(HudElement element, HudLayout.Entry entry, MinecraftClient client) {
+        return entry.width > 0 ? entry.width : element.width(client);
+    }
+
+    /**
      * Computes the on-screen anchor of every element using the same stacking rules as
      * {@link #render}. The editor overlay and its hit-testing use this so their frames sit
      * where the elements are (or would be) drawn.
@@ -366,7 +507,7 @@ public final class HudManager {
         java.util.Map<String, int[]> result = new java.util.LinkedHashMap<>();
         int leftY = leftMargin;
         int rightY = rightMargin;
-        for (HudElement element : elements.values()) {
+        for (HudElement element : drawOrder()) {
             HudLayout.Entry entry = layout.entry(element.id());
             boolean right = element.column() == HudElement.Column.RIGHT;
             int x;
@@ -383,7 +524,7 @@ public final class HudManager {
             }
             result.put(element.id(), new int[]{x, y});
             if (!entry.customPosition) {
-                int advance = element.height(client) + 2;
+                int advance = heightOf(element, entry, client) + 2;
                 if (right) {
                     rightY += advance;
                 } else {
@@ -412,8 +553,8 @@ public final class HudManager {
             }
             this.currentOpacity = clamp01(entry.opacity);
             if (entry.background || entry.border) {
-                int w = element.width(client);
-                int h = element.height(client);
+                int w = widthOf(element, entry, client);
+                int h = heightOf(element, entry, client);
                 if (w > 0 && h > 0) {
                     Palette palette = theme.palette();
                     if (entry.background) {
@@ -447,15 +588,16 @@ public final class HudManager {
                                     int mouseX, int mouseY) {
         int screenWidth = context.getScaledWindowWidth();
         java.util.Map<String, int[]> anchors = anchors(client, screenWidth);
-        for (HudElement element : elements.values()) {
+        for (HudElement element : drawOrder()) {
             if (!element.draggable()) {
                 continue;
             }
             int[] anchor = anchors.getOrDefault(element.id(), new int[]{leftMargin, leftMargin});
+            HudLayout.Entry entry = layout.entry(element.id());
             int x = anchor[0];
             int y = anchor[1];
-            int w = Math.max(40, element.width(client));
-            int h = Math.max(12, element.height(client));
+            int w = Math.max(40, widthOf(element, entry, client));
+            int h = Math.max(12, heightOf(element, entry, client));
             boolean hovered = mouseX >= x && mouseX <= x + w && mouseY >= y && mouseY <= y + h;
             int border = hovered ? palette.primary() : com.logvex.crystal.util.ColorUtil.scaleAlpha(palette.border(), 0.6f);
             RenderUtil.roundedOutline(context, x - 2, y - 2, w + 4, h + 4, palette.radius(4), border);

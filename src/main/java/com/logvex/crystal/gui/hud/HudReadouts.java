@@ -1,0 +1,84 @@
+package com.logvex.crystal.gui.hud;
+
+import java.time.Instant;
+import java.time.ZoneId;
+import java.time.ZonedDateTime;
+
+/**
+ * Pure formatting helpers for the HUD readouts.
+ *
+ * <p>Kept free of Minecraft types so the string a readout will show can be unit-tested
+ * without a client. Anything that needs live world or player state stays in the element.
+ */
+public final class HudReadouts {
+
+    private HudReadouts() {
+    }
+
+    /**
+     * Formats the local wall-clock time of {@code epochMillis}.
+     *
+     * @param h24 true for 24-hour {@code HH:mm}, false for 12-hour {@code hh:mm AM/PM}
+     */
+    public static String clock(long epochMillis, boolean h24) {
+        ZonedDateTime time = Instant.ofEpochMilli(epochMillis).atZone(ZoneId.systemDefault());
+        if (h24) {
+            return String.format("%02d:%02d", time.getHour(), time.getMinute());
+        }
+        int hour = time.getHour() % 12;
+        if (hour == 0) {
+            hour = 12;
+        }
+        return String.format("%d:%02d %s", hour, time.getMinute(), time.getHour() < 12 ? "AM" : "PM");
+    }
+
+    /** Compact on-screen label for the held totem count, including the offhand. */
+    public static String totemLine(int total) {
+        return "totems " + total;
+    }
+
+    /** Renders a yaw as a whole-degree heading, e.g. {@code "yaw 137"}. */
+    public static String yawLine(float yaw) {
+        return "yaw " + Math.round(yaw);
+    }
+
+    /**
+     * A short server label from a raw server address.
+     *
+     * @return the host, without the port, or {@code "singleplayer"} for a null address
+     */
+    public static String serverLabel(String address) {
+        if (address == null || address.isBlank()) {
+            return "singleplayer";
+        }
+        int colon = address.lastIndexOf(':');
+        return colon > 0 ? address.substring(0, colon) : address;
+    }
+
+    /** Compact label for the inventory fill state, e.g. {@code "inv 24/36"} plus free slots. */
+    public static String inventoryLine(int usedSlots, int totalSlots) {
+        int clamped = Math.max(0, Math.min(usedSlots, totalSlots));
+        return "inv " + clamped + "/" + totalSlots + "  free " + (totalSlots - clamped);
+    }
+
+    /** A single sampled position as {@code "x y z"}. */
+    public static String positionLine(int x, int y, int z) {
+        return x + " " + y + " " + z;
+    }
+
+    /**
+     * One-line crystal-damage summary.
+     *
+     * @param toTarget damage the current crystal would deal to the target, or a negative
+     *                 value when there is no crystal under consideration
+     * @param toSelf   damage the same crystal would deal to the player
+     * @param lethal   whether the target would die from it
+     */
+    public static String combatLine(double toTarget, double toSelf, boolean lethal) {
+        if (toTarget < 0) {
+            return "crystal -";
+        }
+        String base = String.format("crystal %.1f/%.1f", toTarget, toSelf);
+        return lethal ? base + "  LETHAL" : base;
+    }
+}

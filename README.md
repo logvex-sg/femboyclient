@@ -95,6 +95,11 @@ All commands are local-only. Prefix `;` or `.crystal`.
 | `; friend <add\|remove\|list> [name]` | Manage the friend list |
 | `; hud <element> <on\|off>` / `hudedit` / `gui` | HUD control |
 | `; scan <start\|pause\|resume\|stop\|reset\|status\|gui\|export\|profile>` | World scanner control |
+| `; automation <gui\|queue\|pause\|resume\|stop\|restock\|rules> [args]` | Automation hub control |
+| `; tools` (or `; wt`) | Open the World Tools interface |
+| `; build <list\|place\|move\|rotate\|mirror\|remove\|undo\|redo\|save\|clear\|materials>` | Blueprint planner |
+| `; nav <list\|add\|remove\|start\|stop\|pause\|resume\|progress\|history>` | Route planner and follower |
+| `; bookmark <add\|remove\|list\|death\|last>` | Coordinate bookmarks and death location |
 | `; save` / `load` / `list [category]` / `version` | Config & info |
 | `; assets [list\|reload]` | Report the asset pack, or clear the texture cache |
 
@@ -201,6 +206,34 @@ container contents — only the block-entity type and position.
 * **World readouts:** `WorldInfo` supplies biome, dimension, time, light level and ping to
   the HUD; `BlockScanner` finds nearby blocks for the ESP modules.
 
+## Automation
+
+A modular player-automation framework (`; automation`, or `; gui` for the panel). Modules are
+independent, share a task queue and a single inventory-transaction arbiter (so two modules never
+compete for the same click), and every action is an ordinary game action. Inventory modules
+(AutoTotem, AutoArmor, AutoWeapon, AutoTool, AutoRefill, AutoReplenish, AutoEat, AutoPotion,
+AutoSort, AutoTrash, ShulkerOrganizer, HotbarPresets, ContainerTransfer, RestockPlanner) and
+player-assistance modules (AutoSprint, SafeWalk, AutoJump, AutoSwim, AutoRespawn, AutoGG,
+AfkGuard, SessionStats) all report a live status line and support pause/resume/cancel/emergency
+stop. See [docs/automation.md](docs/automation.md).
+
+## World tools
+
+`; tools` opens a searchable building and world-inspection interface. The building side is a
+local plan you edit — schematic placement, multi-layer viewer, bounded placement preview,
+rotation/mirror, undo/redo, a build-progress tracker and a missing-material calculator — and the
+world side reports block/state/resistance, light level, chunk borders, biome, entities, time,
+weather, dimension and coordinates from the shared cached query layer. Storage inspection only
+touches inventories you can legitimately access. See [docs/world-tools.md](docs/world-tools.md).
+
+## Navigation
+
+A navigation planner and follower (`; nav`, `; bookmark`, plus the Navigator module and compass
+HUD). Waypoints gain categories, groups, notes and bookmarks; routes are saved per dimension and
+followed as a cursor over your position — progress, remaining distance, arrival and history — with
+an obstacle-aware preview over loaded blocks. It never moves the player: navigation planning and
+movement execution are separate. See [docs/navigation.md](docs/navigation.md).
+
 ## HUD
 
 HUD elements are toggled by matching modules and laid out by the HUD editor (position,
@@ -209,6 +242,11 @@ damage indicator, the readouts include biome, time, light level, dimension/ping,
 counts, armour durability, potion effects, speed and a WASD keystroke overlay. Compact
 readouts are built from a shared `SimpleHudElement`, so they share the same rounded panel,
 spacing and opacity handling.
+
+The editor supports drag with grid snapping and alignment guides, resize, per-element scale and
+opacity, background/border toggles, layer ordering, reset (single and all), preview mode and
+undo/redo. Layouts can be saved as named profiles and imported/exported (`; hud save|load|list|
+delete|export|import`). See [docs/hud.md](docs/hud.md).
 
 ## Themes
 
@@ -237,12 +275,16 @@ command:
 
 Rename, duplicate, export and import are available from the **Profiles** screen.
 
-Four starter profiles ship with the client — **Combat**, **Anarchy Survival**, **Minimal
-HUD** and **Pastel Aesthetics**. They are templates you load on demand and are never applied
-automatically. Profile files are schema-versioned, written atomically, and a corrupt file is
-moved aside (`*.json.corrupt`) rather than silently dropped; a profile written by a newer
-build is refused rather than misread. Export documents use the `.export.json` suffix and are
-kept out of the profile list.
+Eleven starter profiles ship with the client: **Combat**, **PvP**, **Anarchy Survival**,
+**General Survival**, **Creative Building**, **Exploration**, **Performance**, **Minimal
+HUD**, **Full HUD**, **Accessibility** and **Pastel Aesthetics**. They are templates you load
+on demand and are never applied automatically — loading one is always an explicit command or
+click, so a preset can never silently overwrite your configuration. The **Performance** and
+**Accessibility** starters also set appearance fields (blur, gradient, glow, UI scale, reduced
+motion), not just module toggles. Profile files are schema-versioned, written atomically, and a
+corrupt file is moved aside (`*.json.corrupt`) rather than silently dropped; a profile written
+by a newer build is refused rather than misread. Export documents use the `.export.json` suffix
+and are kept out of the profile list.
 
 ## Optional local AI assistant
 

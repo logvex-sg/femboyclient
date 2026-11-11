@@ -70,8 +70,17 @@ public final class CrystalClient implements ClientModInitializer {
     private ConfigManager config;
     private AppearanceStore appearanceStore;
     private HudLayoutStore hudLayoutStore;
+    private com.logvex.crystal.config.HudLayoutLibrary hudLayoutLibrary;
     private FavoritesStore favoritesStore;
     private ProfileService profileService;
+    /** Sidecar metadata (descriptions, categories, default, per-server) for profiles. */
+    private com.logvex.crystal.config.ProfileMetadataStore profileMetadata;
+    /** Audit log of profile changes. */
+    private com.logvex.crystal.config.ProfileHistory profileHistory;
+    /** Flat, searchable index over every module setting. */
+    private com.logvex.crystal.config.SettingsCatalog settingsCatalog;
+    /** Diagnostics report service; created lazily by {@link #diagnostics()}. */
+    private com.logvex.crystal.diagnostics.DiagnosticsService diagnosticsService;
     /** Advanced workspaces: selective apply + preview over the profile store. */
     private com.logvex.crystal.workspace.AdvancedWorkspaceService workspaces;
     private final com.logvex.crystal.context.ContextProfileService contextProfiles =
@@ -87,6 +96,15 @@ public final class CrystalClient implements ClientModInitializer {
             new com.logvex.crystal.social.FriendList(ConfigPaths.friends());
     private final com.logvex.crystal.util.waypoint.WaypointStore waypoints =
             new com.logvex.crystal.util.waypoint.WaypointStore(ConfigPaths.waypoints());
+    /** Waypoint organisation (categories/groups/notes) and bookmarks. */
+    private final com.logvex.crystal.navigation.WaypointRegistry waypointRegistry =
+            new com.logvex.crystal.navigation.WaypointRegistry(ConfigPaths.waypointRegistry());
+    /** Saved navigation routes. */
+    private final com.logvex.crystal.navigation.RoutePlan routePlans =
+            new com.logvex.crystal.navigation.RoutePlan(ConfigPaths.navigation());
+    /** The client-facing navigation engine: route following, position history, death location. */
+    private final com.logvex.crystal.navigation.NavigationService navigation =
+            new com.logvex.crystal.navigation.NavigationService(routePlans, waypointRegistry);
     private final com.logvex.crystal.render.esp.WorldEspCollector worldEsp =
             new com.logvex.crystal.render.esp.WorldEspCollector();
     /** Entity lifecycle: spawn/despawn diffing and bounded per-entity history. */
@@ -98,6 +116,9 @@ public final class CrystalClient implements ClientModInitializer {
     /** Shared arbitration for client actions, so two modules cannot act on the same input. */
     private final com.logvex.crystal.coordination.ActionCoordinator actionCoordinator =
             new com.logvex.crystal.coordination.ActionCoordinator();
+    /** Bounded timings for the Crystal world-render pass (ESP collect + draw). */
+    private final com.logvex.crystal.diagnostics.RenderStats renderStats =
+            new com.logvex.crystal.diagnostics.RenderStats();
     /** The live dependency context and the read-only coordination inspector. */
     private com.logvex.crystal.coordination.ModuleCoordinationService coordination;
     /** The shared event stream over observable client state changes. */
@@ -107,6 +128,8 @@ public final class CrystalClient implements ClientModInitializer {
     /** The deterministic automation rule engine and its persistent store. */
     private final com.logvex.crystal.automation.AutomationEngine automation =
             new com.logvex.crystal.automation.AutomationEngine(events);
+    /** The shared automation hub: task queue + inventory transaction manager. */
+    private com.logvex.crystal.automation.AutomationService automationService;
     private com.logvex.crystal.automation.AutomationStore automationStore;
     private com.logvex.crystal.automation.ClientAutomationContext automationContext;
     /** The injected service context, kept so the extension API can attach extension modules. */
@@ -172,12 +195,13 @@ public final class CrystalClient implements ClientModInitializer {
     private AutoSave autoSave;
     /** Config files that failed to parse during load; reported once the notification manager exists. */
     private final java.util.List<String> loadWarnings = new java.util.ArrayList<>();
+    private final java.util.List<String> loadRestores = new java.util.ArrayList<>();
     /** True while reading config from disk, so loading does not immediately re-mark it dirty. */
     private boolean loadingConfig;
 
     /** Opt-in headless driver: {@code -Dlogvex.smoke=true -Dlogvex.smoke.ticks=N}. */
     private static final boolean SMOKE = Boolean.getBoolean("logvex.smoke");
-    private static final int SMOKE_TICKS = Integer.getInteger("logvex.smoke.ticks", 440);
+    private static final int SMOKE_TICKS = Integer.getInteger("logvex.smoke.ticks", 560);
     /** Optional directory for dev screenshots of the smoke stages. */
     private static final String SHOT_DIR = System.getProperty("logvex.smoke.shots", "");
     private int smokeTick;
@@ -220,6 +244,7 @@ public final class CrystalClient implements ClientModInitializer {
         // Collect config files that failed to parse during load, and warn about them once
         // the notification manager exists (see the end of onInitializeClient).
         ConfigIo.onRecovery(loadWarnings::add);
+        ConfigIo.onRestore(loadRestores::add);
 
         theme = new ThemeManager();
         appearanceStore = new AppearanceStore(ConfigPaths.appearance());
@@ -245,6 +270,8 @@ public final class CrystalClient implements ClientModInitializer {
                 .registerReloader(AssetRegistry.ReloadListener.ID, new AssetRegistry.ReloadListener());
         friends.load();
         waypoints.load();
+        waypointRegistry.load();
+        routePlans.load();
 
         notifications = new NotificationManager();
         notificationStore = new com.logvex.crystal.notification.NotificationStore(ConfigPaths.notifications());
@@ -257,13 +284,18 @@ public final class CrystalClient implements ClientModInitializer {
         modules = new ModuleManager();
         combat = new CombatService();
         cosmetics = new CosmeticService();
+        // The automation hub must exist before the modules so every inventory module can submit
+        // its moves through the one shared transaction manager.
+        automationService = new com.logvex.crystal.automation.AutomationService(modules,
+                notifications, errors());
         ModuleRegistry.registerAll(modules);
         config = new ConfigManager(modules, ConfigPaths.modules());
         hud = new HudManager(modules, theme);
         hudLayoutStore = new HudLayoutStore(ConfigPaths.hud());
         hudLayoutStore.loadInto(hud.layout());
+        hudLayoutLibrary = new com.logvex.crystal.config.HudLayoutLibrary(ConfigPaths.hudLayouts());
         moduleContext = new ModuleContext(modules, combat, theme, hud, notifications, config,
-                actionCoordinator);
+                actionCoordinator, automationService);
         modules.attachContext(moduleContext);
         // The coordination inspector reads module declarations against the live environment.
         // Services are always present; Baritone is an optional integration; the world-query
@@ -284,8 +316,12 @@ public final class CrystalClient implements ClientModInitializer {
 
         favoritesStore = new FavoritesStore(ConfigPaths.favorites());
         favoritesStore.load();
+        com.logvex.crystal.storage.ContainerLabels.get().load();
         profileService = new ProfileService(new ProfileManager(ConfigPaths.profiles()), config,
                 hudLayoutStore, appearanceStore, hud.layout(), theme.settings(), this::afterConfigApply);
+        profileMetadata = new com.logvex.crystal.config.ProfileMetadataStore(ConfigPaths.profileMetadata());
+        profileHistory = new com.logvex.crystal.config.ProfileHistory(ConfigPaths.profileHistory());
+        settingsCatalog = new com.logvex.crystal.config.SettingsCatalog(modules);
         workspaces = new com.logvex.crystal.workspace.AdvancedWorkspaceService(profileService);
         contextStore.loadInto(contextProfiles);
 
@@ -362,6 +398,10 @@ public final class CrystalClient implements ClientModInitializer {
         for (String file : loadWarnings) {
             LOG.warn("Config file {} could not be read; defaults were used", file);
             notifications.warn("Config '" + file + "' was unreadable \u2014 defaults used (backup kept)");
+        }
+        for (String file : loadRestores) {
+            LOG.info("Config file {} was restored from its backup", file);
+            notifications.info("Config '" + file + "' was restored from its backup");
         }
         LOG.info("LOGVEX CRYSTAL ready: {} modules, theme '{}'", modules.size(), theme.palette().preset().label());
     }
@@ -574,9 +614,10 @@ public final class CrystalClient implements ClientModInitializer {
                 () -> ai, () -> aiSettings.localAnalysis);
         diagnosticNotifier = new com.logvex.crystal.commandcenter.ui.DiagnosticNotifier(
                 notifications, commandCenterPreferences);
-        quickActions.setEnabled(quickActions.size() > 0);
+        // The accessor, not the field: with no saved actions the loop above never initialises it.
+        quickActions().setEnabled(quickActions().size() > 0);
         LOG.info("Command Center UI ready: {} quick action(s), default workspace {}",
-                quickActions.size(), commandCenterPreferences.defaultWorkspace.label());
+                quickActions().size(), commandCenterPreferences.defaultWorkspace.label());
     }
 
     /** The quick-action engine, built lazily so bootstrap order does not matter. */
@@ -728,12 +769,40 @@ public final class CrystalClient implements ClientModInitializer {
             if (diagnosticNotifier != null) {
                 diagnosticNotifier.observe(model, now);
             }
+            publishRuntimeCaches();
         }
         // History sampling is internally throttled to the user's interval.
         performanceHistory.sampleIfDue(now, sample, usedMemoryBytes());
         if (quickActions != null) {
             quickActions.tick(quickActionContext(), now);
         }
+    }
+
+    /**
+     * Publishes the sizes of the client's shared caches to the diagnostics service, so the
+     * Diagnostics workspace and the exported report show real numbers rather than a stub.
+     * Called at most twice a second, and only reads already-computed counters.
+     */
+    private void publishRuntimeCaches() {
+        var diagnostics = diagnostics();
+        if (diagnostics == null) {
+            return;
+        }
+        diagnostics.publishCache("world block entities", com.logvex.crystal.world.WorldQuery.get().size());
+        diagnostics.publishCache("entities", com.logvex.crystal.entity.EntityQuery.get().size());
+        diagnostics.publishCache("tracked entities", entityTracker.trackedCount());
+        diagnostics.publishCache("waypoints", waypoints.size());
+        diagnostics.publishCache("navigation routes", routePlans.size());
+        diagnostics.publishCache("event history", events.history().size());
+        diagnostics.publishCache("performance samples", performanceHistory.sampleCount());
+        if (automationService != null) {
+            diagnostics.publishCache("automation tasks", automationService.submittedTasks());
+            diagnostics.publishCache("inventory transactions", automationService.submittedTransactions());
+        }
+        diagnostics.publishCache("actions in flight", actionCoordinator.activeCount());
+        var aiQueueDepth = ai == null ? 0 : ai.queueDepth();
+        diagnostics.publishCache("ai queue depth", aiQueueDepth);
+        diagnostics.publishCache("crash records", crashMonitor.history().size());
     }
 
     /** Currently used JVM heap, for the memory history series. */
@@ -848,9 +917,15 @@ public final class CrystalClient implements ClientModInitializer {
         }
         try {
             worldEsp.clear();
+            long collectStart = System.nanoTime();
             hud.collectWorldEsp(worldEsp, client);
+            long collectEnd = System.nanoTime();
             com.logvex.crystal.render.esp.WorldEspRenderer.render(context, client,
                     com.logvex.crystal.compat.Compat.worldCamera(context), worldEsp);
+            long renderEnd = System.nanoTime();
+            renderStats.record((collectEnd - collectStart) / 1_000_000.0,
+                    (renderEnd - collectEnd) / 1_000_000.0,
+                    worldEsp.boxes().size(), worldEsp.labels().size(), System.currentTimeMillis());
         } catch (Throwable t) {
             LOG.error("World ESP render failed", t);
         }
@@ -869,11 +944,16 @@ public final class CrystalClient implements ClientModInitializer {
             baritone.tick(client);
             modules.tickAll();
             actionCoordinator.tick(System.currentTimeMillis());
+            // The automation hub runs after the modules, so a module that scheduled work this
+            // tick has it considered immediately; its single transaction step still leaves at
+            // most one slot click per tick.
+            automationService.tick(client);
             eventFeed.tick(client);
             tickAi(client);
             tickCommandCenter();
             automation.tick(automationContext, System.currentTimeMillis());
             tickFeatures();
+            navigation.tick(client, notifications);
             notifications.prune();
             cosmetics.tick(client);
             while (clickGuiKey.wasPressed()) {
@@ -1189,6 +1269,173 @@ public final class CrystalClient implements ClientModInitializer {
                 saveAll();
                 smokeStage++;
             }
+            case 15 -> {
+                if (smokeTick < 440) {
+                    return;
+                }
+                // The Automation panel must install, and the hub it drives must actually run
+                // work: pause/resume, a real queued task that completes, and an emergency stop.
+                client.setScreen(new com.logvex.crystal.gui.AutomationPanelScreen(theme, modules,
+                        automationService));
+                require(client.currentScreen instanceof com.logvex.crystal.gui.AutomationPanelScreen,
+                        "Automation panel did not install");
+                require(automationService != null, "automation hub was not constructed");
+
+                // A queued task runs to completion through the real queue.
+                java.util.concurrent.atomic.AtomicInteger steps =
+                        new java.util.concurrent.atomic.AtomicInteger();
+                automationService.submitTask(com.logvex.crystal.automation.task.AutomationTask
+                        .builder("smoke-task", "Smoke", (ctx, progress) -> {
+                            steps.incrementAndGet();
+                            progress.progress(steps.get(), 3);
+                            return steps.get() >= 3
+                                    ? com.logvex.crystal.automation.task.AutomationTask.StepResult.COMPLETED
+                                    : com.logvex.crystal.automation.task.AutomationTask.StepResult.RUNNING;
+                        })
+                        .owner("smoke")
+                        .totalSteps(3)
+                        .requiresWorld(false)
+                        .build());
+                for (int i = 0; i < 6 && steps.get() < 3; i++) {
+                    automationService.tick(client);
+                }
+                require(steps.get() >= 3, "queued automation task did not complete");
+                require(automationService.queue().history().stream()
+                                .anyMatch(record -> record.id().equals("smoke-task")),
+                        "completed task was not recorded in history");
+
+                automationService.setPaused(true);
+                require(automationService.isPaused(), "hub did not report paused");
+                automationService.setPaused(false);
+                require(!automationService.isPaused(), "hub did not resume");
+
+                int cancelled = automationService.emergencyStop();
+                require(automationService.emergencyStopped(), "emergency stop did not latch");
+                automationService.clearEmergencyStop();
+                require(!automationService.emergencyStopped(), "emergency stop did not clear");
+                LOG.info("LOGVEX CRYSTAL automation hub OK ({} cancelled, {} modules)",
+                        cancelled, modules.size());
+
+                client.setScreen(null);
+                smokeStage++;
+            }
+            case 16 -> {
+                if (smokeTick < 480) {
+                    return;
+                }
+                // The World Tools interface must install, and the build planner it drives must
+                // actually plan: a placement is added, previewed, undone and redone through the
+                // real library, and the material calculator reports a deficit.
+                var planner = modules.byClass(com.logvex.crystal.module.world.BuildPlannerModule.class);
+                require(planner != null, "build planner module is not registered");
+                var library = planner.library();
+                require(library.schematic("demo-3x3-floor").isPresent(), "demo schematic missing");
+
+                var placement = library.place("demo-3x3-floor", 100, 64, 100);
+                require(library.plannedBlockCount() == 9, "expected 9 planned blocks");
+                require(library.previewBlocks(placement, 100, 100, 48, 4096).size() == 9,
+                        "preview did not return the planned blocks");
+                require(library.rotate(placement.id()) && placement.rotation() == 1,
+                        "rotation was not recorded");
+                library.undo();
+                require(placement.rotation() == 0, "undo did not revert the rotation");
+                library.redo();
+                require(placement.rotation() == 1, "redo did not reapply the rotation");
+                library.remove(placement.id());
+                library.undo();
+                require(library.placements().size() == 1, "placement removal was not undoable");
+
+                var missing = com.logvex.crystal.world.build.BuildPlanner.missing(
+                        library.effectiveSchematic(placement), item -> 0);
+                require(missing.getOrDefault("minecraft:stone_bricks", 0) == 9,
+                        "material calculator did not report the full deficit");
+
+                client.setScreen(new com.logvex.crystal.gui.WorldToolsScreen(theme, this));
+                require(client.currentScreen instanceof com.logvex.crystal.gui.WorldToolsScreen,
+                        "World Tools screen did not install");
+                client.setScreen(null);
+                LOG.info("LOGVEX CRYSTAL world tools OK ({} schematic(s), {} placement(s))",
+                        library.schematics().size(), library.placements().size());
+                smokeStage++;
+            }
+            case 17 -> {
+                if (smokeTick < 520) {
+                    return;
+                }
+                // Navigation must be wired: the Navigator module registered, the compass HUD
+                // element present, the route store persistent, and the cursor maths correct.
+                var navigator = modules.byClass(com.logvex.crystal.module.world.NavigatorModule.class);
+                require(navigator != null, "navigator module is not registered");
+                require(hud.element("compass") != null, "compass HUD element is not registered");
+
+                var route = new com.logvex.crystal.navigation.RoutePlan.Route("smoke-route",
+                        "minecraft:overworld", java.util.List.of(
+                                new com.logvex.crystal.navigation.RoutePlan.Node(0, 64, 0),
+                                new com.logvex.crystal.navigation.RoutePlan.Node(100, 64, 0),
+                                new com.logvex.crystal.navigation.RoutePlan.Node(200, 64, 0)));
+                routePlans.put(route);
+                require(routePlans.byName("smoke-route") != null, "route was not stored");
+                require(Math.abs(com.logvex.crystal.navigation.RoutePlan.length(route) - 200.0) < 1e-6,
+                        "route length was wrong");
+
+                // The cursor maths the service uses, proven deterministically from a known point.
+                var cursor = new com.logvex.crystal.navigation.NavigationState();
+                cursor.start(route, 0, 0, 0L);
+                cursor.advance(0, 0, 4.0, 1L);
+                require(cursor.index() == 1, "route cursor did not advance");
+                require(cursor.progressAt(0, 0) > 0, "route progress did not advance");
+                cursor.cancel(100, 0, 2L);
+                require(cursor.history().size() == 1, "route history was not recorded");
+
+                waypointRegistry.setMeta("smoke", "stash", "overworld", "smoke test");
+                waypointRegistry.putBookmark(new com.logvex.crystal.navigation.WaypointRegistry.Bookmark(
+                        "smoke-bookmark", 5, 64, 5, "minecraft:overworld"));
+                require(waypointRegistry.metaOf("smoke").category().equals("stash"),
+                        "waypoint metadata was not recorded");
+                require(waypointRegistry.bookmark("smoke-bookmark") != null,
+                        "bookmark was not recorded");
+
+                // Following a route needs a player; in the headless title screen there is none,
+                // so the live follow is exercised only when a world is loaded.
+                if (client.player != null) {
+                    require(navigation.startRoute("smoke-route", client), "route did not start");
+                    require(navigation.state().active() != null, "active route was not set");
+                    navigation.cancelRoute(client);
+                }
+                LOG.info("LOGVEX CRYSTAL navigation OK ({} route(s), {} bookmark(s))",
+                        routePlans.size(), waypointRegistry.bookmarks().size());
+                smokeStage++;
+            }
+            case 18 -> {
+                if (smokeTick < 550) {
+                    return;
+                }
+                // Diagnostics: the report must build from the live client, publish a cache
+                // counter, survive a module failure, and export atomically to disk.
+                var diagnostics = diagnostics();
+                require(diagnostics != null, "diagnostics service was not created");
+                diagnostics.publishCache("smoke-cache", 7);
+                require(diagnostics.caches().getOrDefault("smoke-cache", -1L) == 7L,
+                        "cache counter was not recorded");
+                var report = diagnostics.build(commandCenter == null ? null : commandCenter.performance());
+                require(report.text().contains("LOGVEX CRYSTAL diagnostics"),
+                        "diagnostics report has no header");
+                require(report.text().contains("smoke-cache"),
+                        "diagnostics report did not list the cache counter");
+                java.nio.file.Path dump = ConfigPaths.directory().resolve("diagnostics.txt");
+                try {
+                    diagnostics.export(report, dump);
+                } catch (java.io.IOException e) {
+                    throw new IllegalStateException("SMOKE FAILURE: diagnostics export threw", e);
+                }
+                require(java.nio.file.Files.exists(dump), "diagnostics.txt was not written");
+                boolean debug = diagnostics.toggleDebugMode();
+                require(debug, "debug mode did not toggle on");
+                require(!diagnostics.toggleDebugMode(), "debug mode did not toggle off");
+                LOG.info("LOGVEX CRYSTAL diagnostics OK ({} line(s), {} cache counter(s))",
+                        report.lines().size(), diagnostics.caches().size());
+                smokeStage++;
+            }
             default -> {
                 if (smokeTick >= SMOKE_TICKS) {
                     LOG.info("LOGVEX CRYSTAL smoke OK after {} ticks ({} modules)", smokeTick, modules.size());
@@ -1334,6 +1581,8 @@ public final class CrystalClient implements ClientModInitializer {
             config.save();
             friends.save();
             waypoints.save();
+            waypointRegistry.save();
+            routePlans.save();
             favoritesStore.save();
             notificationStore.save(notifications.settings());
             contextStore.save(contextProfiles);
@@ -1356,6 +1605,8 @@ public final class CrystalClient implements ClientModInitializer {
             config.load();
             friends.load();
             waypoints.load();
+            waypointRegistry.load();
+            routePlans.load();
             notificationStore.loadInto(notifications.settings());
             contextStore.loadInto(contextProfiles);
             if (aiSettingsStore != null) {
@@ -1435,6 +1686,11 @@ public final class CrystalClient implements ClientModInitializer {
         return hud;
     }
 
+    /** The named HUD-layout library (HUD profiles) and its import/export. */
+    public com.logvex.crystal.config.HudLayoutLibrary hudLayouts() {
+        return hudLayoutLibrary;
+    }
+
     public CombatService combat() {
         return combat;
     }
@@ -1471,6 +1727,11 @@ public final class CrystalClient implements ClientModInitializer {
     /** The bounded performance history behind the Performance workspace charts. */
     public com.logvex.crystal.commandcenter.ui.PerformanceHistory performanceHistory() {
         return performanceHistory;
+    }
+
+    /** Bounded timings for the Crystal world-render pass (ESP collect + draw). */
+    public com.logvex.crystal.diagnostics.RenderStats renderStats() {
+        return renderStats;
     }
 
     /** The AI assistant workspace service (deterministic, with optional model enhancement). */
@@ -1577,6 +1838,21 @@ public final class CrystalClient implements ClientModInitializer {
         return waypoints;
     }
 
+    /** Waypoint organisation (categories/groups/notes) and bookmarks. */
+    public com.logvex.crystal.navigation.WaypointRegistry waypointRegistry() {
+        return waypointRegistry;
+    }
+
+    /** Saved navigation routes. */
+    public com.logvex.crystal.navigation.RoutePlan routePlans() {
+        return routePlans;
+    }
+
+    /** The navigation engine: route following, position history and death location. */
+    public com.logvex.crystal.navigation.NavigationService navigation() {
+        return navigation;
+    }
+
     /** The shared Baritone integration service (always present; availability is probed lazily). */
     public com.logvex.crystal.integration.baritone.BaritoneService baritone() {
         return baritone;
@@ -1602,6 +1878,15 @@ public final class CrystalClient implements ClientModInitializer {
         return automation;
     }
 
+    /**
+     * The automation hub: the shared task queue and inventory-transaction arbiter every
+     * automation module schedules through. May be null before the client has finished
+     * bootstrapping.
+     */
+    public com.logvex.crystal.automation.AutomationService automationService() {
+        return automationService;
+    }
+
     /** Persists the automation rules and enabled flag. */
     public void saveAutomation() {
         if (automationStore == null) {
@@ -1622,6 +1907,42 @@ public final class CrystalClient implements ClientModInitializer {
     /** Named configuration profiles (save/load/import/export). */
     public ProfileService profiles() {
         return profileService;
+    }
+
+    /** Sidecar metadata for profiles: descriptions, categories, default, per-server context. */
+    public com.logvex.crystal.config.ProfileMetadataStore profileMetadata() {
+        return profileMetadata;
+    }
+
+    /** Audit log of profile changes (save/load/rename/delete...). */
+    public com.logvex.crystal.config.ProfileHistory profileHistory() {
+        return profileHistory;
+    }
+
+    /** Flat, searchable index over every module setting. */
+    public com.logvex.crystal.config.SettingsCatalog settingsCatalog() {
+        return settingsCatalog;
+    }
+
+    /**
+     * The diagnostics service: gathers module health, errors, cache counters and the
+     * performance verdict into an exportable report. Created lazily so it can read the
+     * module manager and error log once both exist.
+     */
+    public com.logvex.crystal.diagnostics.DiagnosticsService diagnostics() {
+        if (diagnosticsService == null) {
+            diagnosticsService = new com.logvex.crystal.diagnostics.DiagnosticsService(modules, errors());
+            diagnosticsService.publishEnvironment("client", "LOGVEX CRYSTAL");
+            try {
+                diagnosticsService.publishEnvironment("minecraft",
+                        net.minecraft.client.MinecraftClient.getInstance().getGameVersion());
+            } catch (Throwable ignored) {
+                // The game version is unavailable very early in bootstrap; omit it.
+            }
+            diagnosticsService.publishEnvironment("loader", "fabric");
+            diagnosticsService.setRenderStats(renderStats);
+        }
+        return diagnosticsService;
     }
 
     /** Advanced workspaces: selective apply and preview over the profile store. */

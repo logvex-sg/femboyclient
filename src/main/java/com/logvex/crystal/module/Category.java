@@ -13,6 +13,7 @@ public enum Category {
     COMBAT("Combat", "\u2694", 0xFFFF7FB0),
     MOVEMENT("Movement", "\u2748", 0xFF8FE3FF),
     PLAYER("Player", "\u2661", 0xFFFFA6C9),
+    AUTOMATION("Automation", "\u2699", 0xFF9AD0C2),
     WORLD("World", "\u2728", 0xFFB7E3B0),
     RENDER("Render", "\u2726", 0xFFD4B0F0),
     HUD("HUD", "\u2764", 0xFFFF9EC4),

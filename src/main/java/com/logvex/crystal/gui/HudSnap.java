@@ -77,5 +77,8 @@ public final class HudSnap {
         entry.scale = 1.0f;
         entry.background = false;
         entry.border = false;
+        entry.layer = 0;
+        entry.width = 0;
+        entry.height = 0;
     }
 }

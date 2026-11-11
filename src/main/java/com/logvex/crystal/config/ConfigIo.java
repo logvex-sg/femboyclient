@@ -38,9 +38,20 @@ public final class ConfigIo {
      */
     private static volatile java.util.function.Consumer<String> recoveryListener;
 
+    /**
+     * A process-wide sink for "a config file was restored from its backup" notices, kept
+     * separate from {@link #onRecovery} so the client can tell the two apart.
+     */
+    private static volatile java.util.function.Consumer<String> restoreListener;
+
     /** Registers the recovery listener (last registration wins). */
     public static void onRecovery(java.util.function.Consumer<String> listener) {
         recoveryListener = listener;
+    }
+
+    /** Registers the backup-restore listener (last registration wins). */
+    public static void onRestore(java.util.function.Consumer<String> listener) {
+        restoreListener = listener;
     }
 
     private ConfigIo() {
@@ -49,35 +60,59 @@ public final class ConfigIo {
     /**
      * Reads and parses a JSON object from {@code file}.
      *
-     * @return the parsed object, or {@code null} when the file is absent, empty, malformed
-     *         or not a JSON object. Never throws. A file that exists but cannot be parsed
-     *         fires the recovery listener so the user learns defaults were used.
+     * <p>When the primary file is missing or malformed but a valid {@code .bak} exists, the
+     * backup is restored and re-read, so a crash mid-write or a hand edit gone wrong does not
+     * cost the user their settings. The restore fires the restore listener; a file that stays
+     * unreadable fires the recovery listener.
+     *
+     * @return the parsed object, or {@code null} when there is nothing readable. Never throws.
      */
     public static JsonObject readObject(Path file) {
-        if (file == null || !Files.exists(file)) {
+        if (file == null) {
+            return null;
+        }
+        JsonObject object = readObjectDirect(file);
+        if (object != null) {
+            return object;
+        }
+        if (recoverFromBackup(file)) {
+            reportRestore(file);
+            return readObjectDirect(file);
+        }
+        if (Files.exists(file)) {
+            reportRecovery(file);
+        }
+        return null;
+    }
+
+    private static JsonObject readObjectDirect(Path file) {
+        if (!Files.exists(file)) {
             return null;
         }
         try (Reader reader = Files.newBufferedReader(file, StandardCharsets.UTF_8)) {
             JsonElement root = JsonParser.parseReader(reader);
-            JsonObject object = root != null && root.isJsonObject() ? root.getAsJsonObject() : null;
-            if (object == null) {
-                reportRecovery(file);
-            }
-            return object;
+            return root != null && root.isJsonObject() ? root.getAsJsonObject() : null;
         } catch (Exception e) {
-            reportRecovery(file);
             return null;
         }
     }
 
     private static void reportRecovery(Path file) {
-        java.util.function.Consumer<String> listener = recoveryListener;
-        if (listener != null) {
-            try {
-                listener.accept(file.getFileName().toString());
-            } catch (RuntimeException ignored) {
-                // A broken listener must never break a load.
-            }
+        notify(recoveryListener, file);
+    }
+
+    private static void reportRestore(Path file) {
+        notify(restoreListener, file);
+    }
+
+    private static void notify(java.util.function.Consumer<String> listener, Path file) {
+        if (listener == null) {
+            return;
+        }
+        try {
+            listener.accept(file.getFileName().toString());
+        } catch (RuntimeException ignored) {
+            // A broken listener must never break a load.
         }
     }
 
@@ -125,5 +160,48 @@ public final class ConfigIo {
     /** The backup path a store would keep for {@code file} ({@code <name>.bak}). */
     public static Path backupPath(Path file) {
         return file.resolveSibling(file.getFileName() + BACKUP_SUFFIX);
+    }
+
+    /** True when the file exists but cannot be parsed as a JSON object. */
+    public static boolean isCorrupt(Path file) {
+        if (file == null || !Files.exists(file)) {
+            return false;
+        }
+        try (Reader reader = Files.newBufferedReader(file, StandardCharsets.UTF_8)) {
+            JsonElement root = JsonParser.parseReader(reader);
+            return root == null || !root.isJsonObject();
+        } catch (Exception e) {
+            return true;
+        }
+    }
+
+    /**
+     * Restores {@code file} from its {@code .bak} backup when the primary file is missing or
+     * corrupt and the backup parses cleanly.
+     *
+     * <p>This is the recovery half of the atomic-write contract: {@link #writeObject} always
+     * keeps a valid previous copy, so a crash mid-write (or a hand edit gone wrong) can be
+     * undone. A healthy primary file is never touched, and a corrupt backup is never used.
+     *
+     * @return true when the file was restored from the backup.
+     */
+    public static boolean recoverFromBackup(Path file) {
+        if (file == null) {
+            return false;
+        }
+        Path backup = backupPath(file);
+        if (!Files.exists(backup) || isCorrupt(backup)) {
+            return false;
+        }
+        boolean primaryMissing = !Files.exists(file);
+        if (!primaryMissing && !isCorrupt(file)) {
+            return false;
+        }
+        try {
+            Files.copy(backup, file, StandardCopyOption.REPLACE_EXISTING);
+            return true;
+        } catch (IOException e) {
+            return false;
+        }
     }
 }
