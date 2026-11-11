@@ -116,6 +116,9 @@ public final class CrystalClient implements ClientModInitializer {
     /** Shared arbitration for client actions, so two modules cannot act on the same input. */
     private final com.logvex.crystal.coordination.ActionCoordinator actionCoordinator =
             new com.logvex.crystal.coordination.ActionCoordinator();
+    /** Bounded timings for the Crystal world-render pass (ESP collect + draw). */
+    private final com.logvex.crystal.diagnostics.RenderStats renderStats =
+            new com.logvex.crystal.diagnostics.RenderStats();
     /** The live dependency context and the read-only coordination inspector. */
     private com.logvex.crystal.coordination.ModuleCoordinationService coordination;
     /** The shared event stream over observable client state changes. */
@@ -766,12 +769,40 @@ public final class CrystalClient implements ClientModInitializer {
             if (diagnosticNotifier != null) {
                 diagnosticNotifier.observe(model, now);
             }
+            publishRuntimeCaches();
         }
         // History sampling is internally throttled to the user's interval.
         performanceHistory.sampleIfDue(now, sample, usedMemoryBytes());
         if (quickActions != null) {
             quickActions.tick(quickActionContext(), now);
         }
+    }
+
+    /**
+     * Publishes the sizes of the client's shared caches to the diagnostics service, so the
+     * Diagnostics workspace and the exported report show real numbers rather than a stub.
+     * Called at most twice a second, and only reads already-computed counters.
+     */
+    private void publishRuntimeCaches() {
+        var diagnostics = diagnostics();
+        if (diagnostics == null) {
+            return;
+        }
+        diagnostics.publishCache("world block entities", com.logvex.crystal.world.WorldQuery.get().size());
+        diagnostics.publishCache("entities", com.logvex.crystal.entity.EntityQuery.get().size());
+        diagnostics.publishCache("tracked entities", entityTracker.trackedCount());
+        diagnostics.publishCache("waypoints", waypoints.size());
+        diagnostics.publishCache("navigation routes", routePlans.size());
+        diagnostics.publishCache("event history", events.history().size());
+        diagnostics.publishCache("performance samples", performanceHistory.sampleCount());
+        if (automationService != null) {
+            diagnostics.publishCache("automation tasks", automationService.submittedTasks());
+            diagnostics.publishCache("inventory transactions", automationService.submittedTransactions());
+        }
+        diagnostics.publishCache("actions in flight", actionCoordinator.activeCount());
+        var aiQueueDepth = ai == null ? 0 : ai.queueDepth();
+        diagnostics.publishCache("ai queue depth", aiQueueDepth);
+        diagnostics.publishCache("crash records", crashMonitor.history().size());
     }
 
     /** Currently used JVM heap, for the memory history series. */
@@ -886,9 +917,15 @@ public final class CrystalClient implements ClientModInitializer {
         }
         try {
             worldEsp.clear();
+            long collectStart = System.nanoTime();
             hud.collectWorldEsp(worldEsp, client);
+            long collectEnd = System.nanoTime();
             com.logvex.crystal.render.esp.WorldEspRenderer.render(context, client,
                     com.logvex.crystal.compat.Compat.worldCamera(context), worldEsp);
+            long renderEnd = System.nanoTime();
+            renderStats.record((collectEnd - collectStart) / 1_000_000.0,
+                    (renderEnd - collectEnd) / 1_000_000.0,
+                    worldEsp.boxes().size(), worldEsp.labels().size(), System.currentTimeMillis());
         } catch (Throwable t) {
             LOG.error("World ESP render failed", t);
         }
@@ -1692,6 +1729,11 @@ public final class CrystalClient implements ClientModInitializer {
         return performanceHistory;
     }
 
+    /** Bounded timings for the Crystal world-render pass (ESP collect + draw). */
+    public com.logvex.crystal.diagnostics.RenderStats renderStats() {
+        return renderStats;
+    }
+
     /** The AI assistant workspace service (deterministic, with optional model enhancement). */
     public com.logvex.crystal.commandcenter.assistant.AssistantService assistant() {
         return assistant;
@@ -1898,6 +1940,7 @@ public final class CrystalClient implements ClientModInitializer {
                 // The game version is unavailable very early in bootstrap; omit it.
             }
             diagnosticsService.publishEnvironment("loader", "fabric");
+            diagnosticsService.setRenderStats(renderStats);
         }
         return diagnosticsService;
     }

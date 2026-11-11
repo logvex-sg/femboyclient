@@ -36,16 +36,25 @@ public final class DiagnosticsReport {
     private final Map<String, String> environment;
     private final Map<String, Long> caches;
     private final List<String> configLines;
+    private final List<String> renderLines;
 
     public DiagnosticsReport(PerformanceReport performance, List<ModuleHealth> modules,
                              List<ErrorLine> errors, Map<String, String> environment,
                              Map<String, Long> caches, List<String> configLines) {
+        this(performance, modules, errors, environment, caches, configLines, List.of());
+    }
+
+    public DiagnosticsReport(PerformanceReport performance, List<ModuleHealth> modules,
+                             List<ErrorLine> errors, Map<String, String> environment,
+                             Map<String, Long> caches, List<String> configLines,
+                             List<String> renderLines) {
         this.performance = performance;
         this.modules = modules == null ? List.of() : modules;
         this.errors = errors == null ? List.of() : errors;
         this.environment = environment == null ? Map.of() : environment;
         this.caches = caches == null ? Map.of() : caches;
         this.configLines = configLines == null ? List.of() : configLines;
+        this.renderLines = renderLines == null ? List.of() : renderLines;
     }
 
     /** The full report as a list of lines. */
@@ -82,6 +91,11 @@ public final class DiagnosticsReport {
                 out.add("    [" + finding.severity().name() + "] " + finding.rule()
                         + ": " + finding.describe());
             }
+        }
+        if (!renderLines.isEmpty()) {
+            out.add("");
+            out.add("[render]");
+            out.addAll(renderLines);
         }
         out.add("");
         out.add("[modules] " + modules.size() + " tracked, "

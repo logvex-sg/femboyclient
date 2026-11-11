@@ -39,6 +39,7 @@ public final class DiagnosticsService {
     private long lastBuildMillis;
     private DiagnosticsReport cached;
     private long reportCount;
+    private RenderStats renderStats;
 
     public DiagnosticsService(ModuleManager modules, ModuleErrorLog errors) {
         this.modules = modules;
@@ -61,6 +62,18 @@ public final class DiagnosticsService {
 
     public Map<String, Long> caches() {
         return Map.copyOf(caches);
+    }
+
+    /**
+     * Attaches the world-render timings, so the report can show how much of a frame the
+     * Crystal ESP pass costs. Optional: a report built without it simply omits the section.
+     */
+    public void setRenderStats(RenderStats renderStats) {
+        this.renderStats = renderStats;
+    }
+
+    public RenderStats renderStats() {
+        return renderStats;
     }
 
     /** Whether verbose diagnostics collection is on. */
@@ -99,7 +112,22 @@ public final class DiagnosticsService {
             errorLines.add(new DiagnosticsReport.ErrorLine(entry.module(), entry.message(), entry.atMillis()));
         }
         return new DiagnosticsReport(performance, health, errorLines,
-                new LinkedHashMap<>(environment), new LinkedHashMap<>(caches), List.of());
+                new LinkedHashMap<>(environment), new LinkedHashMap<>(caches), List.of(),
+                renderLines());
+    }
+
+    /** The world-render section of the report, or an empty list when nothing was measured. */
+    private List<String> renderLines() {
+        if (renderStats == null || renderStats.sampleCount() == 0) {
+            return List.of();
+        }
+        List<String> lines = new ArrayList<>();
+        lines.add(String.format("  world esp collect: %.2fms avg", renderStats.avgCollectMillis()));
+        lines.add(String.format("  world esp draw: %.2fms avg", renderStats.avgRenderMillis()));
+        lines.add("  last pass: " + renderStats.lastBoxes() + " box(es), "
+                + renderStats.lastLabels() + " label(s)");
+        lines.add("  window: " + renderStats.sampleCount() + " frame(s)");
+        return lines;
     }
 
     /** Builds and caches a report, returning the cached one when it is younger than a second. */

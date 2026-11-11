@@ -132,9 +132,20 @@ with `publishCache("waypoints", n)`) and an environment fact map (client, game v
 Everything else is read from the services it is handed, so it holds no duplicated state.
 
 The report has fixed sections: environment, performance (the same measured frames the
-Performance workspace charts, plus the intelligence findings), module health (failures ranked,
-with the last error), caches, config-file status and the recent error ring. It contains no
-server address, seed or token.
+Performance workspace charts, plus the intelligence findings), render (the world-ESP pass
+timings, when measured), module health (failures ranked, with the last error), caches,
+config-file status and the recent error ring. It contains no server address, seed or token.
+
+- `diagnostics/RenderStats` is a bounded window of the Crystal world-render pass: it records
+  the ESP collect and draw times plus the box and label counts of the last pass, from the
+  world-render hook. `DiagnosticsService.setRenderStats` attaches it, so the report can say
+  how much of a frame the ESP pass actually cost rather than only how slow the frame was.
+  The section is omitted entirely when nothing has been measured.
+- The cache counters are published live from `CrystalClient.publishRuntimeCaches` at most
+  twice a second: world block entities, entities, tracked entities, waypoints, navigation
+  routes, event history, performance samples, automation tasks, inventory transactions,
+  actions in flight, AI queue depth and crash records. So the caches section shows real
+  numbers during normal play, not only in the smoke test.
 
 - `; report` prints the roll-up and the first lines; `; report export` writes the whole
   document to `<config>/logvex-crystal/diagnostics.txt` with an atomic temp-then-move.
