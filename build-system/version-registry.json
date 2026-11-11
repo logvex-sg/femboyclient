@@ -327,7 +327,7 @@
       "supportStatus": "blocked",
       "fabricSupport": true,
       "loaderRequirement": ">=0.20.1",
-      "fabricApi": "0.166.0+26.3",
+      "fabricApi": "0.166.2+26.3",
       "javaRequirement": "25",
       "mappings": "mojang-names-in-jar",
       "loomPlugin": "net.fabricmc.fabric-loom",

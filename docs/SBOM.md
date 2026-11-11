@@ -40,7 +40,7 @@ Roles: **provided** = supplied by Minecraft or Fabric at runtime and never bundl
 | `0.145.4+26.1.1` | 26.1.1 |
 | `0.155.3+26.1.2` | 26.1.2 |
 | `0.161.0+26.2` | 26.2 |
-| `0.166.0+26.3` | 26.3 |
+| `0.166.2+26.3` | 26.3 |
 
 ## Not bundled
 

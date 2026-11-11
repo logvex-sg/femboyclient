@@ -279,7 +279,7 @@
       "loomPlugin": "net.fabricmc.fabric-loom",
       "loomVersion": "1.17.20",
       "loader": "0.20.1",
-      "fabricApi": "0.166.0+26.3",
+      "fabricApi": "0.166.2+26.3",
       "fabricSupported": true,
       "clientSha1": "e877b6a07acd633fb3bb475002175cec036e7b87",
       "supportable": true,
