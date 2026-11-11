@@ -3063,6 +3063,8 @@ public final class CommandManager {
                 "; hud <element> <on|off> | hudedit | gui",
                 "; category <name> | favorites | recent | appearance | keybinds",
                 "; profile <list|save|load|delete|starters|gui> [name]",
+                "; settings <search|modified|reset|resetmodule|resetall> [query]",
+                "; perf [findings|history|clear] | report [export]",
                 "; favorite <module>",
                 "; waypoint <add|remove|list|clear> [name] [x y z]",
                 "; baritone <status|gui|goto <x y z>|near <x y z> [r]|wp <name>|here|cancel|pause|resume|paused|set|settings>",

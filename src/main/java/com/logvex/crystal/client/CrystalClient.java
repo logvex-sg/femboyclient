@@ -1360,6 +1360,36 @@ public final class CrystalClient implements ClientModInitializer {
                         routePlans.size(), waypointRegistry.bookmarks().size());
                 smokeStage++;
             }
+            case 18 -> {
+                if (smokeTick < 550) {
+                    return;
+                }
+                // Diagnostics: the report must build from the live client, publish a cache
+                // counter, survive a module failure, and export atomically to disk.
+                var diagnostics = diagnostics();
+                require(diagnostics != null, "diagnostics service was not created");
+                diagnostics.publishCache("smoke-cache", 7);
+                require(diagnostics.caches().getOrDefault("smoke-cache", -1L) == 7L,
+                        "cache counter was not recorded");
+                var report = diagnostics.build(commandCenter == null ? null : commandCenter.performance());
+                require(report.text().contains("LOGVEX CRYSTAL diagnostics"),
+                        "diagnostics report has no header");
+                require(report.text().contains("smoke-cache"),
+                        "diagnostics report did not list the cache counter");
+                java.nio.file.Path dump = ConfigPaths.directory().resolve("diagnostics.txt");
+                try {
+                    diagnostics.export(report, dump);
+                } catch (java.io.IOException e) {
+                    throw new IllegalStateException("SMOKE FAILURE: diagnostics export threw", e);
+                }
+                require(java.nio.file.Files.exists(dump), "diagnostics.txt was not written");
+                boolean debug = diagnostics.toggleDebugMode();
+                require(debug, "debug mode did not toggle on");
+                require(!diagnostics.toggleDebugMode(), "debug mode did not toggle off");
+                LOG.info("LOGVEX CRYSTAL diagnostics OK ({} line(s), {} cache counter(s))",
+                        report.lines().size(), diagnostics.caches().size());
+                smokeStage++;
+            }
             default -> {
                 if (smokeTick >= SMOKE_TICKS) {
                     LOG.info("LOGVEX CRYSTAL smoke OK after {} ticks ({} modules)", smokeTick, modules.size());

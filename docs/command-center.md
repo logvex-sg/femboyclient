@@ -123,7 +123,26 @@ registered module.
 An action never throws: an unknown id, an unavailable action or a failing body all come back
 as `ActionResult.failure(message)`.
 
-## 7. HUD and module
+## 7. Diagnostics report
+
+`diagnostics/DiagnosticsService` gathers the client's own runtime state into an
+`diagnostics/DiagnosticsReport` — a pure, stable formatter — and can export it. It owns two
+pieces no other service keeps: a registry of named cache counters (a cache advertises its size
+with `publishCache("waypoints", n)`) and an environment fact map (client, game version, loader).
+Everything else is read from the services it is handed, so it holds no duplicated state.
+
+The report has fixed sections: environment, performance (the same measured frames the
+Performance workspace charts, plus the intelligence findings), module health (failures ranked,
+with the last error), caches, config-file status and the recent error ring. It contains no
+server address, seed or token.
+
+- `; report` prints the roll-up and the first lines; `; report export` writes the whole
+  document to `<config>/logvex-crystal/diagnostics.txt` with an atomic temp-then-move.
+- `buildThrottled` rebuilds at most once a second; the workspace and the command both use it.
+- The **Diagnostics workspace** in the Command Center renders the live report with severity
+  colouring, a bounded scroll, an export button, a debug-mode toggle and a clear-errors button.
+
+## 8. HUD and module
 
 `CommandCenterHudElement` is a pure renderer over the cached snapshot — it never triggers a
 scan while drawing. It shows the overall health, the problem count, the frame rate and the top
@@ -134,7 +153,7 @@ visibility; the hub itself is always available through `; center` and the GUI. T
 hidden by default and revealed by the module, so it costs no HUD space unless the user asks
 for it. Its state persists like any other module.
 
-## 8. Optionality, cost and persistence
+## 9. Optionality, cost and persistence
 
 - **Optional.** The hub is created during bootstrap; nothing requires the HUD panel, the
   command, the AI or a model to be present.
@@ -143,10 +162,14 @@ for it. Its state persists like any other module.
 - **Persistent.** The only user-facing setting is the module's `Hud` toggle, saved with the
   rest of the module state; every other value is derived live.
 
-## 9. Tests
+## 10. Tests
 
 `src/test/java/com/logvex/crystal/commandcenter/` covers the pure core with no Minecraft
 runtime: `StatusModelTest`, `PerformanceMonitorTest`, `PerformanceIntelligenceTest`,
 `CommandRegistryTest`, `CommandCenterServiceTest`, `StandardActionsTest` (through a recording
 `CommandCenterHost`), `ModuleCompatibilityEngineTest` and `CommandCenterContextTest`. The
 registry count is guarded by `ModuleRegistryTest` (`EXPECTED_MODULE_COUNT`).
+
+The diagnostics report is covered by `diagnostics/DiagnosticsServiceTest`: section presence,
+healthy vs. unhealthy summaries, module-failure ranking, atomic export, one-per-second
+throttling, the debug toggle and defensive null handling.
