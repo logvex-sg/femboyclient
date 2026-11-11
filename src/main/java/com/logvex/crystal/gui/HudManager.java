@@ -99,6 +99,10 @@ public final class HudManager {
         register(new SimpleHudElement("clock", HudElement.Column.RIGHT, 60, false,
                 client -> new String[]{com.logvex.crystal.gui.hud.HudReadouts.clock(
                         System.currentTimeMillis(), true)}));
+        register(new SimpleHudElement("server", HudElement.Column.LEFT, 96, false,
+                HudManager::serverLines));
+        register(new SimpleHudElement("inventory", HudElement.Column.RIGHT, 92, false,
+                HudManager::inventoryLines));
         register(new com.logvex.crystal.gui.hud.CrosshairHudElement());
         register(new com.logvex.crystal.gui.hud.SessionHudElement());
         register(new com.logvex.crystal.gui.hud.EntityCountHudElement());
@@ -212,6 +216,32 @@ public final class HudManager {
             total += client.player.getOffHandStack().getCount();
         }
         return new String[]{com.logvex.crystal.gui.hud.HudReadouts.totemLine(total)};
+    }
+
+    /** Server host and ping, or a singleplayer marker when there is no server entry. */
+    private static String[] serverLines(MinecraftClient client) {
+        if (client.player == null) {
+            return new String[0];
+        }
+        var entry = client.getCurrentServerEntry();
+        String host = com.logvex.crystal.gui.hud.HudReadouts.serverLabel(entry == null ? null : entry.address);
+        return new String[]{host, "ping " + com.logvex.crystal.world.WorldInfo.ping(client) + " ms"};
+    }
+
+    /** Inventory fill: how many of the 36 main slots hold an item, and how many are free. */
+    private static String[] inventoryLines(MinecraftClient client) {
+        if (client.player == null) {
+            return new String[0];
+        }
+        var inventory = client.player.getInventory();
+        int used = 0;
+        for (int slot = 0; slot < com.logvex.crystal.player.InventoryUtil.MAIN_SIZE; slot++) {
+            if (!inventory.getStack(slot).isEmpty()) {
+                used++;
+            }
+        }
+        return new String[]{com.logvex.crystal.gui.hud.HudReadouts.inventoryLine(
+                used, com.logvex.crystal.player.InventoryUtil.MAIN_SIZE)};
     }
 
     public void register(HudElement element) {

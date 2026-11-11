@@ -41,4 +41,23 @@ public final class HudReadouts {
     public static String yawLine(float yaw) {
         return "yaw " + Math.round(yaw);
     }
+
+    /**
+     * A short server label from a raw server address.
+     *
+     * @return the host, without the port, or {@code "singleplayer"} for a null address
+     */
+    public static String serverLabel(String address) {
+        if (address == null || address.isBlank()) {
+            return "singleplayer";
+        }
+        int colon = address.lastIndexOf(':');
+        return colon > 0 ? address.substring(0, colon) : address;
+    }
+
+    /** Compact label for the inventory fill state, e.g. {@code "inv 24/36"} plus free slots. */
+    public static String inventoryLine(int usedSlots, int totalSlots) {
+        int clamped = Math.max(0, Math.min(usedSlots, totalSlots));
+        return "inv " + clamped + "/" + totalSlots + "  free " + (totalSlots - clamped);
+    }
 }

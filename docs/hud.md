@@ -33,6 +33,8 @@ what lets the whole HUD run on the render thread without coordination.
 | `direction` | Facing direction and yaw | visible |
 | `totems` | Held totem count | visible |
 | `clock` | Local wall-clock time | visible |
+| `server` | Server host and ping | visible |
+| `inventory` | Inventory fill and free slots | visible |
 | `worldinfo` | World information | visible |
 | `keystrokes` | Keybind list | visible |
 | `baritone` | Baritone status | hidden (opt-in) |

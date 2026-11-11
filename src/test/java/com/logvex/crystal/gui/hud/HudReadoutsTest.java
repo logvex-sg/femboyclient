@@ -54,4 +54,19 @@ class HudReadoutsTest {
         assertEquals("yaw 137", HudReadouts.yawLine(136.6f));
         assertEquals("yaw -90", HudReadouts.yawLine(-90f));
     }
+
+    @Test
+    void serverLabelStripsPortAndMarksSingleplayer() {
+        assertEquals("play.example.com", HudReadouts.serverLabel("play.example.com:25565"));
+        assertEquals("localhost", HudReadouts.serverLabel("localhost"));
+        assertEquals("singleplayer", HudReadouts.serverLabel(null));
+        assertEquals("singleplayer", HudReadouts.serverLabel("  "));
+    }
+
+    @Test
+    void inventoryLineCountsFreeSlotsAndClamps() {
+        assertEquals("inv 24/36  free 12", HudReadouts.inventoryLine(24, 36));
+        assertEquals("inv 36/36  free 0", HudReadouts.inventoryLine(40, 36));
+        assertEquals("inv 0/36  free 36", HudReadouts.inventoryLine(-5, 36));
+    }
 }
