@@ -169,6 +169,16 @@ public final class WorldToolsScreen extends Screen {
                     }
                     return "cleared " + removed + " placement(s)";
                 }));
+        tools.add(new Tool("Construction grid", Area.BUILD,
+                "Toggle the construction grid and axis guides overlay.",
+                () -> {
+                    var module = planner();
+                    if (module == null) {
+                        return "planner unavailable";
+                    }
+                    boolean on = module.toggleGrid();
+                    return "construction grid " + (on ? "on" : "off");
+                }));
         tools.add(new Tool("Missing materials", Area.BUILD,
                 "Report the materials still needed for the plan.",
                 () -> {

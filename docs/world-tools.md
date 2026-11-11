@@ -38,6 +38,10 @@ module/world/BuildPlannerModule   the module that owns the library and exposes t
   the build history and drives undo/redo.
 * **Block palette / grid / alignment** — the placement anchor is the construction grid origin;
   the panel shows the coordinate and the footprint so placement is dimension-aware.
+  `ConstructionGrid` computes the grid lines (aligned to spacing multiples, capped at
+  `MAX_LINES`) and the two axis guides through a placement's origin; the **Construction grid**
+  tool toggles the overlay, which the planner emits as thin world boxes each frame behind the
+  same `UpdateClock` as the block preview.
 
 ## World utilities
 

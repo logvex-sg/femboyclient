@@ -11,6 +11,7 @@ import com.logvex.crystal.theme.Palette;
 import com.logvex.crystal.util.UpdateClock;
 import com.logvex.crystal.world.build.BlueprintLibrary;
 import com.logvex.crystal.world.build.BlueprintStore;
+import com.logvex.crystal.world.build.ConstructionGrid;
 import com.logvex.crystal.world.build.Schematic;
 import com.logvex.crystal.config.ConfigPaths;
 import java.util.ArrayList;
@@ -34,6 +35,9 @@ public final class BuildPlannerModule extends Module implements WorldEspProvider
     private final IntSetting maxBlocks = add("MaxPreview", "Cap on previewed blocks.", 2048, 64, 8192);
     private final IntSetting interval = add("RefreshMs", "Minimum interval between preview rebuilds.", 500, 100, 5000);
     private final BooleanSetting showProgress = add("Progress", "Show build progress as HUD lines.", true);
+    private final BooleanSetting grid = add("Grid", "Show a construction grid and axis guides around the player.", false);
+    private final IntSetting gridSpacing = add("GridSpacing", "Construction grid spacing in blocks.", 8, 1, 64);
+    private final IntSetting gridRadius = add("GridRadius", "Construction grid radius in blocks.", 32, 4, 128);
 
     private final UpdateClock clock = new UpdateClock(500);
     // Resolved lazily: ConfigPaths touches the Fabric loader, which is absent in unit tests.
@@ -63,6 +67,17 @@ public final class BuildPlannerModule extends Module implements WorldEspProvider
     public BlueprintLibrary library() {
         ensureLoaded();
         return library;
+    }
+
+    /** Toggles the construction grid overlay; returns the new state. */
+    public boolean toggleGrid() {
+        grid.set(!grid.value());
+        return grid.value();
+    }
+
+    /** Whether the construction grid overlay is on. */
+    public boolean gridVisible() {
+        return grid.value();
     }
 
     private void ensureLoaded() {
@@ -154,6 +169,38 @@ public final class BuildPlannerModule extends Module implements WorldEspProvider
         for (BlueprintLibrary.PreviewBlock block : cached) {
             out.addBox(block.x(), block.y(), block.z(), block.x() + 1, block.y() + 1, block.z() + 1,
                     color, 1.0f);
+        }
+        if (grid.value()) {
+            addGrid(out, client, centerX, centerZ, color);
+        }
+    }
+
+    /** Emits the construction grid and the build-axis guides as thin world boxes. */
+    private void addGrid(WorldEspCollector out, MinecraftClient client, int centerX, int centerZ, int color) {
+        if (client.world == null) {
+            return;
+        }
+        int y = client.player.getBlockY();
+        int r = gridRadius.value();
+        int gridColor = 0x60FFFFFF;
+        for (ConstructionGrid.Line line : ConstructionGrid.lines(centerX, centerZ, r, gridSpacing.value())) {
+            addLine(out, line, y, gridColor);
+        }
+        if (!library.placements().isEmpty()) {
+            var origin = library.placements().get(0);
+            for (ConstructionGrid.Line line : ConstructionGrid.guides(origin.x(), origin.z(), r)) {
+                addLine(out, line, y, color);
+            }
+        }
+    }
+
+    private static void addLine(WorldEspCollector out, ConstructionGrid.Line line, int y, int color) {
+        double minY = y;
+        double maxY = y + 0.02;
+        if (line.alongX()) {
+            out.addBox(line.fixed(), minY, line.from(), line.fixed() + 0.02, maxY, line.to() + 1, color, 0.7f);
+        } else {
+            out.addBox(line.from(), minY, line.fixed(), line.to() + 1, maxY, line.fixed() + 0.02, color, 0.7f);
         }
     }
 
