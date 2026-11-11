@@ -522,6 +522,12 @@ public final class CommandManager {
                 client.notify("HUD " + (client.hud().isHudVisible() ? "shown" : "hidden"), NotificationLevel.SUCCESS);
             }
             case "edit" -> hudEdit();
+            case "save", "profile" -> hudLayoutSave(args);
+            case "load", "apply" -> hudLayoutLoad(args);
+            case "list", "layouts" -> hudLayoutList();
+            case "delete", "remove", "rm" -> hudLayoutDelete(args);
+            case "export" -> hudLayoutExport(args);
+            case "import" -> hudLayoutImport();
             case "on", "off" -> {
                 client.hud().setHudVisible(args.get(0).equalsIgnoreCase("on"));
                 client.notify("HUD " + args.get(0).toLowerCase(Locale.ROOT), NotificationLevel.SUCCESS);
@@ -532,7 +538,7 @@ public final class CommandManager {
                     client.hud().setElementVisible(args.get(0), visible);
                     client.notify(args.get(0) + ": " + (visible ? "on" : "off"), NotificationLevel.SUCCESS);
                 } else {
-                    client.notify("Usage: ; hud <element> <on|off> | toggle | edit", NotificationLevel.WARN);
+                    client.notify("Usage: ; hud <element> <on|off> | toggle | edit | save|load|list|delete|export|import <name>", NotificationLevel.WARN);
                 }
             }
         }
@@ -543,6 +549,76 @@ public final class CommandManager {
             return;
         }
         MinecraftClient.getInstance().setScreen(new HudEditorScreen(client.hud(), client.theme()));
+    }
+
+    private void hudLayoutSave(List<String> args) {
+        if (args.size() < 2) {
+            client.notify("Usage: ; hud save <name>", NotificationLevel.WARN);
+            return;
+        }
+        String name = args.get(1);
+        try {
+            boolean written = client.hudLayouts().save(name, client.hud().layout(), false);
+            client.notify(written
+                            ? "HUD layout saved as '" + com.logvex.crystal.config.HudLayoutLibrary.sanitize(name) + "'"
+                            : "A layout named '" + name + "' already exists",
+                    written ? NotificationLevel.SUCCESS : NotificationLevel.WARN);
+        } catch (java.io.IOException e) {
+            client.notify("Could not save layout: " + e.getMessage(), NotificationLevel.ERROR);
+        }
+    }
+
+    private void hudLayoutLoad(List<String> args) {
+        if (args.size() < 2) {
+            client.notify("Usage: ; hud load <name>", NotificationLevel.WARN);
+            return;
+        }
+        String name = args.get(1);
+        boolean loaded = client.hudLayouts().load(name, client.hud().layout());
+        if (!loaded) {
+            client.notify("No HUD layout named '" + name + "'", NotificationLevel.WARN);
+            return;
+        }
+        client.saveNow();
+        client.notify("HUD layout '" + name + "' applied", NotificationLevel.SUCCESS);
+    }
+
+    private void hudLayoutList() {
+        var names = client.hudLayouts().names();
+        if (names.isEmpty()) {
+            client.notify("No saved HUD layouts. Use ; hud save <name>", NotificationLevel.INFO);
+            return;
+        }
+        client.notify("HUD layouts: " + String.join(", ", names), NotificationLevel.INFO);
+    }
+
+    private void hudLayoutDelete(List<String> args) {
+        if (args.size() < 2) {
+            client.notify("Usage: ; hud delete <name>", NotificationLevel.WARN);
+            return;
+        }
+        boolean removed = client.hudLayouts().delete(args.get(1));
+        client.notify(removed ? "Deleted HUD layout '" + args.get(1) + "'"
+                        : "No HUD layout named '" + args.get(1) + "'",
+                removed ? NotificationLevel.SUCCESS : NotificationLevel.WARN);
+    }
+
+    private void hudLayoutExport(List<String> args) {
+        if (args.size() < 2) {
+            client.notify("Usage: ; hud export <name>", NotificationLevel.WARN);
+            return;
+        }
+        var path = client.hudLayouts().export(args.get(1));
+        client.notify(path != null ? "Exported to " + path.getFileName()
+                        : "No HUD layout named '" + args.get(1) + "'",
+                path != null ? NotificationLevel.SUCCESS : NotificationLevel.WARN);
+    }
+
+    private void hudLayoutImport() {
+        var imported = client.hudLayouts().importAll();
+        client.notify(imported.isEmpty() ? "No *.export.json layouts found in the HUD layout folder"
+                        : "Imported HUD layout(s): " + String.join(", ", imported),
+                imported.isEmpty() ? NotificationLevel.WARN : NotificationLevel.SUCCESS);
     }
 
     // ------------------------------------------------------------ waypoints / friends
@@ -3061,6 +3137,7 @@ public final class CommandManager {
                 "; opacity|gradient|glow|scale|animation <0..1>",
                 "; radius <0..12> | decorations|cat|motion|blur|cursor|sounds|splash <on|off>",
                 "; hud <element> <on|off> | hudedit | gui",
+                "; hud save <name> | load <name> | list | delete <name> | export <name> | import",
                 "; category <name> | favorites | recent | appearance | keybinds",
                 "; profile <list|save|load|delete|starters|gui> [name]",
                 "; settings <search|modified|reset|resetmodule|resetall> [query]",

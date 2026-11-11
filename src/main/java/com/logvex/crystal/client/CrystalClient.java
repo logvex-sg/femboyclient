@@ -70,6 +70,7 @@ public final class CrystalClient implements ClientModInitializer {
     private ConfigManager config;
     private AppearanceStore appearanceStore;
     private HudLayoutStore hudLayoutStore;
+    private com.logvex.crystal.config.HudLayoutLibrary hudLayoutLibrary;
     private FavoritesStore favoritesStore;
     private ProfileService profileService;
     /** Sidecar metadata (descriptions, categories, default, per-server) for profiles. */
@@ -287,6 +288,7 @@ public final class CrystalClient implements ClientModInitializer {
         hud = new HudManager(modules, theme);
         hudLayoutStore = new HudLayoutStore(ConfigPaths.hud());
         hudLayoutStore.loadInto(hud.layout());
+        hudLayoutLibrary = new com.logvex.crystal.config.HudLayoutLibrary(ConfigPaths.hudLayouts());
         moduleContext = new ModuleContext(modules, combat, theme, hud, notifications, config,
                 actionCoordinator, automationService);
         modules.attachContext(moduleContext);
@@ -1638,6 +1640,11 @@ public final class CrystalClient implements ClientModInitializer {
 
     public HudManager hud() {
         return hud;
+    }
+
+    /** The named HUD-layout library (HUD profiles) and its import/export. */
+    public com.logvex.crystal.config.HudLayoutLibrary hudLayouts() {
+        return hudLayoutLibrary;
     }
 
     public CombatService combat() {

@@ -25,6 +25,11 @@ public final class ConfigPaths {
         return directory().resolve("hud.json");
     }
 
+    /** Directory holding named HUD layout "profiles" and their exports. */
+    public static Path hudLayouts() {
+        return directory().resolve("hud-layouts");
+    }
+
     public static Path friends() {
         return directory().resolve("friends.json");
     }

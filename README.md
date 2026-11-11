@@ -243,6 +243,11 @@ counts, armour durability, potion effects, speed and a WASD keystroke overlay. C
 readouts are built from a shared `SimpleHudElement`, so they share the same rounded panel,
 spacing and opacity handling.
 
+The editor supports drag with grid snapping and alignment guides, resize, per-element scale and
+opacity, background/border toggles, layer ordering, reset (single and all), preview mode and
+undo/redo. Layouts can be saved as named profiles and imported/exported (`; hud save|load|list|
+delete|export|import`). See [docs/hud.md](docs/hud.md).
+
 ## Themes
 
 Presets: **Default, Femboy, Sakura Pink, Cotton Candy, Lavender Dream, Midnight Kitty,
