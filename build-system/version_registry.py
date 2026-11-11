@@ -130,7 +130,7 @@ def main() -> int:
         },
         "range": versions["range"],
         "primary": versions["primary"],
-        "editions": ["standard", "overseer"],
+        "editions": ["standard"],
         "statusVocabulary": {
             "supportStatus": ["supported", "experimental", "unsupported", "blocked", "deprecated"],
             "buildStatus": ["verified", "failing", "blocked", "untested"],

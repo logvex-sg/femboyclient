@@ -1,8 +1,8 @@
 name: PR validation
 
 # Runs on every pull request and on pushes to the long-lived branches. The job is the same gate a
-# release must pass, minus publishing: guards, the full test suite, and a Standard + Overseer build
-# for every supported Minecraft version. If this is green, the artifact is releaseable.
+# release must pass, minus publishing: guards, the full test suite, and a build for every supported
+# Minecraft version. If this is green, the artifact is releaseable.
 on:
   pull_request:
   push:
@@ -59,7 +59,7 @@ jobs:
       - name: Test suite
         run: ./gradlew --console=plain test
 
-      - name: Build both editions for every supported version
+      - name: Build for every supported version
         run: ./gradlew --console=plain verifyAll
 
       - name: Upload test report on failure

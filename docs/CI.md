@@ -13,7 +13,7 @@ The job installs JDK 25 (Loom's build JVM) and Python 3.12, then runs, in order:
 4. `checkVersionRegistry` — the version registry is current.
 5. `checkSbom` — `docs/SBOM.md` matches the resolved dependency versions.
 6. `test` — the full unit suite.
-7. `verifyAll` — both editions build for every supported Minecraft version.
+7. `verifyAll` — the client builds for every supported Minecraft version.
 
 If any step fails, the test report is uploaded as an artifact so the failure is visible without a
 re-run. Concurrency cancels superseded runs on the same ref, so a busy branch does not queue.
@@ -22,24 +22,9 @@ re-run. Concurrency cancels superseded runs on the same ref, so a busy branch do
 
 A release runs the same `verifyAll` gate first. Only then does it:
 
-1. `buildAll` — assemble both editions for the primary version.
-2. write the signing key from the `LOGVEX_RELEASE_SIGNING_KEY` secret to a `0600` file outside the
-   workspace;
-3. `signRelease -PsigningKey=...` — sign one manifest per edition;
-4. verify each manifest against the exact staged artifact, using the public key it just wrote;
-5. collect the jars, manifests, build metadata and `SHA256SUMS` into `release-assets/`;
-6. publish them as a GitHub release with generated notes;
-7. delete the key file, always, even on failure.
-
-The key is written with `umask 077` into `$RUNNER_TEMP`, never echoed, and removed in an
-`if: always()` step. If the secret is unset the workflow fails before signing rather than publishing
-an unsigned release.
-
-## Required repository configuration
-
-- Secret `LOGVEX_RELEASE_SIGNING_KEY`: the **private** Ed25519 key in PEM form. Generate it once
-  offline (see `docs/RELEASE_SIGNING.md`) and store only the private half here; the public half is
-  committed at `src/main/resources/logvex-release-key.txt`.
+1. `buildAll` — assemble the client for the primary version;
+2. collect the jar, its build metadata and a `SHA256SUMS` file into `release-assets/`;
+3. publish them as a GitHub release with generated notes.
 
 ## Running the same gate locally
 

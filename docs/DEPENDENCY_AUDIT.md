@@ -34,12 +34,10 @@ resolves.
 
 - **No bundled binaries.** The jar has no shaded libraries, no native code, and no model weights.
 - **No dynamic dependency resolution at runtime.** The client does not download jars to extend
-  itself; the only network features are the optional local-AI model download (user-initiated, from
-  the upstream publisher, checksum-pinned) and the release update check (signature-verified).
+  itself; the only network feature is the optional local-AI model download (user-initiated, from
+  the upstream publisher, checksum-pinned).
 - **Pinned coordinates.** Every dependency is pinned to an exact version. There are no version
   ranges and no `+` dynamic versions, so a build is reproducible from the two version files.
-- **Signed releases.** Update artifacts are authenticated with Ed25519 before installation; see
-  `docs/RELEASE_SIGNING.md`.
 - **Reviewable rule sets.** The compatibility and adapter-leak rules are data files
   (`build-system/compatibility-manifest.json`, `build-system/adapter-guard.json`), not code, so a
   reviewer can see and diff exactly which symbols are allowed where.

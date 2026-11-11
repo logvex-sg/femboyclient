@@ -138,13 +138,6 @@ public final class CrystalClient implements ClientModInitializer {
     private com.logvex.crystal.api.ApiRegistry apiRegistry;
     private com.logvex.crystal.extension.ExtensionManager extensionManager;
     private com.logvex.crystal.extension.ExtensionPreferences extensionPreferences;
-    /**
-     * The optional features this build carries, discovered from {@code logvex-features.txt}. The
-     * standard build carries none; the Overseer build carries the administration feature. The
-     * core never names a feature class, so the two editions stay genuinely independent.
-     */
-    private com.logvex.crystal.variant.FeatureRegistry features;
-    private com.logvex.crystal.variant.Variant variant = com.logvex.crystal.variant.Variant.STANDARD;
 
     // ---- Phase 7: optional mini-AI (crash intelligence, local model, reports) ----
     /** The shared mini-AI preferences, persisted to {@code ai.json}. */
@@ -387,7 +380,6 @@ public final class CrystalClient implements ClientModInitializer {
         registerKeybind();
         registerCosmetics();
         registerCallbacks();
-        bootstrapFeatures();
 
         // Flush any pending save when the client stops normally, so a change made in the
         // last moments before quitting is not lost to the debounce window.
@@ -407,42 +399,6 @@ public final class CrystalClient implements ClientModInitializer {
     }
 
     /**
-     * Discovers and starts the optional features this build carries.
-     *
-     * <p>The core does not know what a feature is; it reads the class names the build declared in
-     * {@code logvex-features.txt} and starts whatever is there. In the standard build the list is
-     * empty, so this is a single no-op call. In the Overseer build it starts the administration
-     * feature, which owns the remote controller and the fleet screens. The variant reported to the
-     * UI is derived from what actually loaded, so the two can never disagree.
-     */
-    private void bootstrapFeatures() {
-        features = com.logvex.crystal.variant.FeatureRegistry.discover();
-        variant = features.variant();
-        com.logvex.crystal.variant.FeatureHost host = new com.logvex.crystal.variant.ClientFeatureHost(this, variant);
-        for (com.logvex.crystal.variant.ClientFeature feature : features.all()) {
-            try {
-                feature.start(host);
-                LOG.info("Feature '{}' ({}) started", feature.id(), feature.displayName());
-            } catch (Throwable t) {
-                LOG.error("Feature '{}' failed to start; continuing without it", feature.id(), t);
-            }
-        }
-        if (!features.isEmpty()) {
-            LOG.info("LOGVEX CRYSTAL variant: {} ({} feature(s))", variant.title(), features.all().size());
-        }
-    }
-
-    /** The optional features this build carries (empty in the standard build). */
-    public com.logvex.crystal.variant.FeatureRegistry features() {
-        return features;
-    }
-
-    /** Which build is running, derived from the features that loaded. */
-    public com.logvex.crystal.variant.Variant variant() {
-        return variant;
-    }
-
-    /**
      * Normal shutdown: stop background workers and flush a pending autosave. Runs once on the
      * client thread before the game exits.
      */
@@ -457,19 +413,6 @@ public final class CrystalClient implements ClientModInitializer {
             modules.shutdownAll();
         } catch (Throwable t) {
             LOG.warn("Module shutdown failed", t);
-        }
-        try {
-            if (features != null) {
-                for (com.logvex.crystal.variant.ClientFeature feature : features.all()) {
-                    try {
-                        feature.stop();
-                    } catch (Throwable t) {
-                        LOG.warn("Feature '{}' stop failed", feature.id(), t);
-                    }
-                }
-            }
-        } catch (Throwable t) {
-            LOG.warn("Feature shutdown failed", t);
         }
         try {
             if (extensionManager != null) {
@@ -952,7 +895,6 @@ public final class CrystalClient implements ClientModInitializer {
             tickAi(client);
             tickCommandCenter();
             automation.tick(automationContext, System.currentTimeMillis());
-            tickFeatures();
             navigation.tick(client, notifications);
             notifications.prune();
             cosmetics.tick(client);
@@ -972,23 +914,6 @@ public final class CrystalClient implements ClientModInitializer {
             }
         } catch (Throwable t) {
             LOG.error("Uncaught error in client tick", t);
-        }
-    }
-
-    /**
-     * Ticks each optional feature. A feature that throws is logged and left in place; its failure
-     * must not stop the others or the rest of the client tick.
-     */
-    private void tickFeatures() {
-        if (features == null) {
-            return;
-        }
-        for (com.logvex.crystal.variant.ClientFeature feature : features.all()) {
-            try {
-                feature.tick();
-            } catch (Throwable t) {
-                LOG.error("Feature '{}' tick failed", feature.id(), t);
-            }
         }
     }
 
