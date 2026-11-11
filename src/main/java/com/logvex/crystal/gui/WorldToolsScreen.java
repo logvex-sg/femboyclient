@@ -230,6 +230,47 @@ public final class WorldToolsScreen extends Screen {
                 "Show or hide nearby entity counts.",
                 () -> toggleWorldInfoSection("Counts")));
 
+        tools.add(new Tool("Storage summary", Area.STORAGE,
+                "Scan your inventory (and any open container) and report item totals.",
+                () -> {
+                    MinecraftClient mc = MinecraftClient.getInstance();
+                    var module = client == null ? null
+                            : client.modules().byClass(com.logvex.crystal.module.automation.AutoTrashAutomation.class);
+                    var snapshot = com.logvex.crystal.storage.StorageScanner.scan(mc,
+                            module == null ? java.util.Set.of() : module.protectedItems());
+                    if (snapshot.isEmpty()) {
+                        return "nothing to scan";
+                    }
+                    var totals = snapshot.totals();
+                    StringBuilder sb = new StringBuilder();
+                    int shown = 0;
+                    for (var entry : totals.entrySet()) {
+                        if (shown++ >= 8) {
+                            sb.append(", +").append(totals.size() - 8).append(" more");
+                            break;
+                        }
+                        if (sb.length() > 0) {
+                            sb.append(", ");
+                        }
+                        sb.append(entry.getKey()).append('x').append(entry.getValue());
+                    }
+                    return snapshot.stackCount() + " stack(s), " + snapshot.itemCount() + " item(s): " + sb;
+                }));
+        tools.add(new Tool("Duplicate stacks", Area.STORAGE,
+                "Find item ids that appear in more than one stack across accessible inventories.",
+                () -> {
+                    MinecraftClient mc = MinecraftClient.getInstance();
+                    var module = client == null ? null
+                            : client.modules().byClass(com.logvex.crystal.module.automation.AutoTrashAutomation.class);
+                    var snapshot = com.logvex.crystal.storage.StorageScanner.scan(mc,
+                            module == null ? java.util.Set.of() : module.protectedItems());
+                    var duplicates = snapshot.duplicates();
+                    if (duplicates.isEmpty()) {
+                        return "no duplicate stacks";
+                    }
+                    return duplicates.size() + " item id(s) duplicated: "
+                            + String.join(", ", duplicates.keySet().stream().limit(8).toList());
+                }));
         tools.add(new Tool("Container contents", Area.STORAGE,
                 "Report the stacks in the currently open container.",
                 () -> {

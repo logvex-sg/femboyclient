@@ -109,4 +109,20 @@ public final class AutoTrashAutomation extends AutomationModule {
         Set<String> ids = TrashRules.parseList(raw);
         return ids.isEmpty() ? "no protected items" : String.join(", ", ids);
     }
+
+    /** The protected items resolved to {@link net.minecraft.item.Item}, for storage flagging. */
+    public Set<net.minecraft.item.Item> protectedItems() {
+        Set<net.minecraft.item.Item> items = new java.util.LinkedHashSet<>();
+        for (String id : TrashRules.parseList(protectedList.value())) {
+            var identifier = net.minecraft.util.Identifier.tryParse(id);
+            if (identifier == null) {
+                continue;
+            }
+            var item = net.minecraft.registry.Registries.ITEM.get(identifier);
+            if (item != null && item != net.minecraft.item.Items.AIR) {
+                items.add(item);
+            }
+        }
+        return items;
+    }
 }

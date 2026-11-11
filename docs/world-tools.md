@@ -61,17 +61,25 @@ player's own inventory, and a container whose screen the player has open.
 
 ```
 storage/StorageSnapshot   a read-only view of an accessible inventory: stacks, totals, duplicates
+storage/StorageScanner    builds a snapshot from the player inventory and the open container
 automation/inventory/InventoryActions   the accessor that reads a live handler
 ```
 
 * Shulker/container contents viewer — `InventoryActions.containerOccupied(handler)` and the
   snapshot report the stacks in the open container.
-* Item requirement calculator / material totals — `BlueprintLibrary.plannedMaterials()` sums the
-  planned blocks per item.
-* Duplicate-stack detection — `StorageSnapshot.duplicates()` finds stacks of the same item that
-  could be merged.
-* Protected-item rules — `AutoTrashAutomation.protectedSummary()` and `TrashRules` define what
-  sorting and trash must never touch.
+* Storage summary / material totals — the **Storage summary** tool calls
+  `StorageScanner.scan(client, protected)` and reports stack and item totals per item id;
+  `BlueprintLibrary.plannedMaterials()` sums the planned blocks per item.
+* Duplicate-stack detection — the **Duplicate stacks** tool reports the item ids
+  `StorageSnapshot.duplicates()` finds in more than one stack.
+* Protected-item rules — `AutoTrashAutomation.protectedSummary()`/`protectedItems()` and
+  `TrashRules` define what sorting and trash must never touch; protected stacks are flagged in
+  the snapshot so the GUI can grey them out rather than suggesting a merge the user forbade.
+
+`StorageScanner` walks exactly two things: the 36-slot player inventory, always, and the slots of
+a container screen the server has already opened for the player. It never loads a chunk, never
+reads another player's storage, and the walk is bounded by the handler's slot count, so a scan is
+cheap enough to run on demand from a tool action rather than every frame.
 
 ## GUI
 
