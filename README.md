@@ -270,12 +270,16 @@ command:
 
 Rename, duplicate, export and import are available from the **Profiles** screen.
 
-Four starter profiles ship with the client — **Combat**, **Anarchy Survival**, **Minimal
-HUD** and **Pastel Aesthetics**. They are templates you load on demand and are never applied
-automatically. Profile files are schema-versioned, written atomically, and a corrupt file is
-moved aside (`*.json.corrupt`) rather than silently dropped; a profile written by a newer
-build is refused rather than misread. Export documents use the `.export.json` suffix and are
-kept out of the profile list.
+Eleven starter profiles ship with the client: **Combat**, **PvP**, **Anarchy Survival**,
+**General Survival**, **Creative Building**, **Exploration**, **Performance**, **Minimal
+HUD**, **Full HUD**, **Accessibility** and **Pastel Aesthetics**. They are templates you load
+on demand and are never applied automatically — loading one is always an explicit command or
+click, so a preset can never silently overwrite your configuration. The **Performance** and
+**Accessibility** starters also set appearance fields (blur, gradient, glow, UI scale, reduced
+motion), not just module toggles. Profile files are schema-versioned, written atomically, and a
+corrupt file is moved aside (`*.json.corrupt`) rather than silently dropped; a profile written
+by a newer build is refused rather than misread. Export documents use the `.export.json` suffix
+and are kept out of the profile list.
 
 ## Optional local AI assistant
 
