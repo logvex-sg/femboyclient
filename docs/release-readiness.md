@@ -10,9 +10,9 @@
 | Check | Command | Result |
 | --- | --- | --- |
 | Full build | `JAVA_HOME=~/.local/logvex-jdk-25 ./gradlew build` | **BUILD SUCCESSFUL** |
-| Tests | parse `build/test-results/test/*.xml` | **1138 tests, 0 failures, 0 errors, 0 skipped, 148 classes** |
-| Main classes | `find src/main/java -name '*.java' \| wc -l` | 530 |
-| Test classes | `find src/test/java -name '*.java' \| wc -l` | 149 |
+| Tests | parse `build/test-results/test/*.xml` | **1143 tests, 0 failures, 0 errors, 0 skipped, 149 classes** |
+| Main classes | `find src/main/java -name "*.java" \| wc -l` | 532 |
+| Test classes | `find src/test/java -name "*.java" \| wc -l` | 150 |
 | Registered modules | `ModuleRegistry.EXPECTED_MODULE_COUNT` | 103 (asserted by `ModuleRegistryTest`) |
 | Standard artifact | `build/dist/1.21.11/standard/` | `logvex-crystal-1.21.11-1.1.0.jar` |
 | Overseer artifact | `build/dist/1.21.11/overseer/` | `logvex-crystal-overseer-1.21.11-1.1.0.jar` |
@@ -176,7 +176,7 @@ they cannot run in the pure-logic test source set, which Loom gives no Minecraft
 
 ## 5. Bottom line
 
-The client **builds cleanly and passes its entire automated suite (1138 tests, 0 failures)**.
+The client **builds cleanly and passes its entire automated suite (1143 tests, 0 failures)**.
 Every registered module has a real implementation; there are no placeholders, no fabricated
 results and no invented APIs. What remains is honest runtime validation against a live game,
 enumerated in §4 and in `docs/baritone-integration.md` §6.1 — not missing code.

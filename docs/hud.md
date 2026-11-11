@@ -39,7 +39,8 @@ what lets the whole HUD run on the render thread without coordination.
 | `item-counts` | Crystal/obsidian/totem/pearl counts | visible |
 | `combat-stats` | Crystal damage and lethality | visible |
 | `worldinfo` | World information | visible |
-| `keystrokes` | Keybind list | visible |
+| `keystrokes` | Keystrokes grid (held keys) | visible |
+| `keybind-list` | Module keybind list | visible |
 | `baritone` | Baritone status | hidden (opt-in) |
 | `ai-assistant` | AI assistant | hidden (opt-in) |
 | `command-center` | Command Center roll-up | hidden (opt-in) |

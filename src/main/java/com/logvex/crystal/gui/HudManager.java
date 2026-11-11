@@ -112,6 +112,7 @@ public final class HudManager {
         register(new com.logvex.crystal.gui.hud.CrosshairHudElement());
         register(new com.logvex.crystal.gui.hud.SessionHudElement());
         register(new com.logvex.crystal.gui.hud.EntityCountHudElement());
+        register(new com.logvex.crystal.gui.hud.KeybindListHudElement(modules));
         register(new com.logvex.crystal.gui.hud.WorldInfoHudElement());
         register(new KeystrokesHudElement());
         register(new com.logvex.crystal.gui.hud.BaritoneHudElement());
