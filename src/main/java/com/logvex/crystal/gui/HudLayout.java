@@ -26,6 +26,12 @@ public final class HudLayout {
         public boolean background;
         /** Draw a soft outline around the element. */
         public boolean border;
+        /** Draw order; lower layers draw first (behind), higher layers on top. */
+        public int layer;
+        /** Explicit width override in pixels; 0 means "use the element's own width". */
+        public int width;
+        /** Explicit height override in pixels; 0 means "use the element's own height". */
+        public int height;
 
         public Entry copy() {
             Entry e = new Entry();
@@ -37,6 +43,9 @@ public final class HudLayout {
             e.scale = scale;
             e.background = background;
             e.border = border;
+            e.layer = layer;
+            e.width = width;
+            e.height = height;
             return e;
         }
     }

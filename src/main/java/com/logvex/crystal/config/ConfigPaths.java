@@ -80,6 +80,16 @@ public final class ConfigPaths {
         return directory().resolve("profiles");
     }
 
+    /** Sidecar metadata for profiles: descriptions, categories, default and context. */
+    public static Path profileMetadata() {
+        return directory().resolve("profile-meta.json");
+    }
+
+    /** Audit log of profile changes. */
+    public static Path profileHistory() {
+        return directory().resolve("profile-history.json");
+    }
+
     /** Phase 7 mini-AI preferences. */
     public static Path ai() {
         return directory().resolve("ai.json");

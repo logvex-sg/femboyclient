@@ -72,6 +72,12 @@ public final class CrystalClient implements ClientModInitializer {
     private HudLayoutStore hudLayoutStore;
     private FavoritesStore favoritesStore;
     private ProfileService profileService;
+    /** Sidecar metadata (descriptions, categories, default, per-server) for profiles. */
+    private com.logvex.crystal.config.ProfileMetadataStore profileMetadata;
+    /** Audit log of profile changes. */
+    private com.logvex.crystal.config.ProfileHistory profileHistory;
+    /** Flat, searchable index over every module setting. */
+    private com.logvex.crystal.config.SettingsCatalog settingsCatalog;
     /** Advanced workspaces: selective apply + preview over the profile store. */
     private com.logvex.crystal.workspace.AdvancedWorkspaceService workspaces;
     private final com.logvex.crystal.context.ContextProfileService contextProfiles =
@@ -303,6 +309,9 @@ public final class CrystalClient implements ClientModInitializer {
         favoritesStore.load();
         profileService = new ProfileService(new ProfileManager(ConfigPaths.profiles()), config,
                 hudLayoutStore, appearanceStore, hud.layout(), theme.settings(), this::afterConfigApply);
+        profileMetadata = new com.logvex.crystal.config.ProfileMetadataStore(ConfigPaths.profileMetadata());
+        profileHistory = new com.logvex.crystal.config.ProfileHistory(ConfigPaths.profileHistory());
+        settingsCatalog = new com.logvex.crystal.config.SettingsCatalog(modules);
         workspaces = new com.logvex.crystal.workspace.AdvancedWorkspaceService(profileService);
         contextStore.loadInto(contextProfiles);
 
@@ -1810,6 +1819,21 @@ public final class CrystalClient implements ClientModInitializer {
     /** Named configuration profiles (save/load/import/export). */
     public ProfileService profiles() {
         return profileService;
+    }
+
+    /** Sidecar metadata for profiles: descriptions, categories, default, per-server context. */
+    public com.logvex.crystal.config.ProfileMetadataStore profileMetadata() {
+        return profileMetadata;
+    }
+
+    /** Audit log of profile changes (save/load/rename/delete...). */
+    public com.logvex.crystal.config.ProfileHistory profileHistory() {
+        return profileHistory;
+    }
+
+    /** Flat, searchable index over every module setting. */
+    public com.logvex.crystal.config.SettingsCatalog settingsCatalog() {
+        return settingsCatalog;
     }
 
     /** Advanced workspaces: selective apply and preview over the profile store. */

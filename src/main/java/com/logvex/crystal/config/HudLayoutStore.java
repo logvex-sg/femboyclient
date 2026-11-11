@@ -59,6 +59,9 @@ public final class HudLayoutStore {
             json.addProperty("scale", entry.scale);
             json.addProperty("background", entry.background);
             json.addProperty("border", entry.border);
+            json.addProperty("layer", entry.layer);
+            json.addProperty("width", entry.width);
+            json.addProperty("height", entry.height);
             elements.add(e.getKey(), json);
         }
         root.add("elements", elements);
@@ -90,7 +93,14 @@ public final class HudLayoutStore {
             entry.scale = clamp(optFloat(json, "scale", entry.scale), 0.5f, 2f);
             entry.background = optBool(json, "background", entry.background);
             entry.border = optBool(json, "border", entry.border);
+            entry.layer = optInt(json, "layer", entry.layer);
+            entry.width = clampInt(optInt(json, "width", entry.width), 0, 4096);
+            entry.height = clampInt(optInt(json, "height", entry.height), 0, 4096);
         }
+    }
+
+    private static int clampInt(int value, int min, int max) {
+        return Math.max(min, Math.min(max, value));
     }
 
     private static int optInt(JsonObject o, String key, int fallback) {

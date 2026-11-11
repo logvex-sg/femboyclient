@@ -91,7 +91,8 @@ public final class CommandManager {
             "diagnostics", "conflicts", "coord", "automation", "auto", "diag", "crystal", "ac",
             "assets", "version", "ver", "extensions", "ext", "scripts", "script", "ai",
             "center", "commandcenter", "hub", "tools", "worldtools", "wt", "build", "blueprint",
-            "schematic", "nav", "navigation", "route", "routes", "bookmark", "bookmarks");
+            "schematic", "nav", "navigation", "route", "routes", "bookmark", "bookmarks",
+            "settings", "setting", "find");
 
     /**
      * Handles a raw chat line. Returns true when the line was a Crystal command and must
@@ -205,6 +206,7 @@ public final class CommandManager {
             case "build", "blueprint", "schematic" -> worldBuild(args);
             case "nav", "navigation", "route", "routes" -> navigate(args);
             case "bookmark", "bookmarks" -> bookmarkCommand(args);
+            case "settings", "setting", "find" -> settings(args);
             case "scan", "scanner" -> scan(args);
             case "wi", "intel", "intelligence" -> worldIntelligence(args);
             case "entities", "entity" -> entities(args);
@@ -915,6 +917,100 @@ public final class CommandManager {
             }
             default -> client.notify(
                     "Usage: ; nav <list|add|remove|start|stop|pause|resume|progress|history>",
+                    NotificationLevel.WARN);
+        }
+    }
+
+    /**
+     * {@code ; settings <search|modified|reset|resetmodule|resetall> [args]} - search, inspect
+     * and reset module settings. Backed by the shared {@link
+     * com.logvex.crystal.config.SettingsCatalog}, so the command and the settings GUI see the
+     * same index.
+     */
+    private void settings(List<String> args) {
+        var catalog = client.settingsCatalog();
+        if (catalog == null) {
+            client.notify("Settings are not available yet", NotificationLevel.WARN);
+            return;
+        }
+        String sub = args.isEmpty() ? "search" : args.get(0).toLowerCase(Locale.ROOT);
+        switch (sub) {
+            case "search", "find", "s" -> {
+                String query = args.size() > 1
+                        ? CommandTokenizer.join(args.subList(1, args.size())) : "";
+                var matches = catalog.search(query);
+                if (matches.isEmpty()) {
+                    client.notify("No settings match '" + query + "'", NotificationLevel.INFO);
+                    return;
+                }
+                int shown = 0;
+                for (var entry : matches) {
+                    if (shown++ >= 20) {
+                        client.notify("\u2026 " + (matches.size() - 20) + " more", NotificationLevel.INFO);
+                        break;
+                    }
+                    client.notify(entry.label() + " = " + entry.setting().displayValue()
+                            + (entry.isDefault() ? "" : " *"), NotificationLevel.INFO);
+                }
+            }
+            case "modified", "changed" -> {
+                var modified = catalog.modified();
+                if (modified.isEmpty()) {
+                    client.notify("No settings differ from their defaults", NotificationLevel.INFO);
+                    return;
+                }
+                int shown = 0;
+                for (var entry : modified) {
+                    if (shown++ >= 25) {
+                        client.notify("\u2026 " + (modified.size() - 25) + " more", NotificationLevel.INFO);
+                        break;
+                    }
+                    client.notify(entry.label() + " = " + entry.setting().displayValue(),
+                            NotificationLevel.INFO);
+                }
+            }
+            case "reset" -> {
+                if (args.size() < 3) {
+                    client.notify("Usage: ; settings reset <module> <setting>", NotificationLevel.WARN);
+                    return;
+                }
+                var module = client.modules().byName(args.get(1));
+                if (module == null) {
+                    client.notify("No module named '" + args.get(1) + "'", NotificationLevel.ERROR);
+                    return;
+                }
+                String settingName = CommandTokenizer.join(args.subList(2, args.size()));
+                for (var entry : catalog.ofModule(module.name())) {
+                    if (entry.setting().name().equalsIgnoreCase(settingName)) {
+                        entry.setting().reset();
+                        client.notify("Reset " + entry.label(), NotificationLevel.SUCCESS);
+                        return;
+                    }
+                }
+                client.notify("No setting '" + settingName + "' on " + module.name(),
+                        NotificationLevel.ERROR);
+            }
+            case "resetmodule" -> {
+                if (args.size() < 2) {
+                    client.notify("Usage: ; settings resetmodule <module>", NotificationLevel.WARN);
+                    return;
+                }
+                var module = client.modules().byName(args.get(1));
+                if (module == null) {
+                    client.notify("No module named '" + args.get(1) + "'", NotificationLevel.ERROR);
+                    return;
+                }
+                int count = catalog.resetModule(module);
+                client.notify("Reset " + count + " setting(s) on " + module.name(),
+                        NotificationLevel.SUCCESS);
+            }
+            case "resetall" -> {
+                int count = catalog.resetAll();
+                client.notify("Reset " + count + " setting(s) across all modules",
+                        NotificationLevel.SUCCESS);
+            }
+            default -> client.notify(
+                    "Usage: ; settings <search|modified|reset|resetmodule|resetall> [args]",
                     NotificationLevel.WARN);
         }
     }
@@ -1923,6 +2019,8 @@ public final class CommandManager {
                 try {
                     boolean ok = service.save(name, false);
                     if (ok) {
+                        client.profileHistory().record(
+                                com.logvex.crystal.config.ProfileHistory.Action.SAVED, name, "");
                         client.notify("Saved profile '" + name + "'", NotificationLevel.SUCCESS);
                     } else {
                         client.notify("Profile '" + name + "' exists; use ; profile overwrite <name>",
@@ -1940,6 +2038,8 @@ public final class CommandManager {
                 String name = CommandTokenizer.join(args.subList(1, args.size()));
                 try {
                     service.save(name, true);
+                    client.profileHistory().record(
+                            com.logvex.crystal.config.ProfileHistory.Action.SAVED, name, "overwrite");
                     client.notify("Overwrote profile '" + name + "'", NotificationLevel.SUCCESS);
                 } catch (java.io.IOException e) {
                     client.notify("Save failed: " + e.getMessage(), NotificationLevel.ERROR);
@@ -1963,6 +2063,8 @@ public final class CommandManager {
                 }
                 if (service.apply(name)) {
                     client.theme().update();
+                    client.profileHistory().record(
+                            com.logvex.crystal.config.ProfileHistory.Action.LOADED, name, "");
                     client.notify("Loaded profile '" + name + "'", NotificationLevel.SUCCESS);
                 } else {
                     client.notify("No profile named '" + name + "'", NotificationLevel.ERROR);
@@ -1973,13 +2075,154 @@ public final class CommandManager {
                     client.notify("Usage: ; profile delete <name>", NotificationLevel.WARN);
                     return;
                 }
-                boolean ok = service.profiles().delete(CommandTokenizer.join(args.subList(1, args.size())));
+                String name = CommandTokenizer.join(args.subList(1, args.size()));
+                boolean ok = service.profiles().delete(name);
+                if (ok && client.profileMetadata() != null) {
+                    client.profileMetadata().remove(name);
+                    client.profileMetadata().save();
+                    client.profileHistory().record(
+                            com.logvex.crystal.config.ProfileHistory.Action.DELETED, name, "");
+                }
                 client.notify(ok ? "Deleted profile" : "No such profile",
                         ok ? NotificationLevel.SUCCESS : NotificationLevel.ERROR);
             }
+            case "rename", "mv" -> {
+                if (args.size() < 3) {
+                    client.notify("Usage: ; profile rename <old> <new>", NotificationLevel.WARN);
+                    return;
+                }
+                try {
+                    if (service.profiles().rename(args.get(1), args.get(2))) {
+                        if (client.profileMetadata() != null) {
+                            client.profileMetadata().rename(args.get(1), args.get(2));
+                            client.profileMetadata().save();
+                            client.profileHistory().record(
+                                    com.logvex.crystal.config.ProfileHistory.Action.RENAMED,
+                                    args.get(2), "from " + args.get(1));
+                        }
+                        client.notify("Renamed to '" + args.get(2) + "'", NotificationLevel.SUCCESS);
+                    } else {
+                        client.notify("Rename refused (missing source or name in use)",
+                                NotificationLevel.ERROR);
+                    }
+                } catch (java.io.IOException e) {
+                    client.notify("Rename failed: " + e.getMessage(), NotificationLevel.ERROR);
+                }
+            }
+            case "duplicate", "dup", "copy" -> {
+                if (args.size() < 2) {
+                    client.notify("Usage: ; profile duplicate <name> [newname]", NotificationLevel.WARN);
+                    return;
+                }
+                String source = args.get(1);
+                String target = args.size() >= 3 ? args.get(2) : source + "-copy";
+                try {
+                    if (service.profiles().duplicate(source, target)) {
+                        if (client.profileMetadata() != null) {
+                            var meta = client.profileMetadata().of(target);
+                            var srcMeta = client.profileMetadata().peek(source);
+                            if (srcMeta != null) {
+                                meta.description = srcMeta.description;
+                                meta.category = srcMeta.category;
+                                meta.tags.addAll(srcMeta.tags);
+                                meta.context = srcMeta.context;
+                            }
+                            client.profileMetadata().save();
+                            client.profileHistory().record(
+                                    com.logvex.crystal.config.ProfileHistory.Action.DUPLICATED,
+                                    target, "from " + source);
+                        }
+                        client.notify("Duplicated '" + source + "' as '" + target + "'",
+                                NotificationLevel.SUCCESS);
+                    } else {
+                        client.notify("Duplicate refused (missing source or name in use)",
+                                NotificationLevel.ERROR);
+                    }
+                } catch (java.io.IOException e) {
+                    client.notify("Duplicate failed: " + e.getMessage(), NotificationLevel.ERROR);
+                }
+            }
+            case "describe", "desc" -> {
+                if (args.size() < 3) {
+                    client.notify("Usage: ; profile describe <name> <text>", NotificationLevel.WARN);
+                    return;
+                }
+                var meta = client.profileMetadata().of(args.get(1));
+                meta.description = CommandTokenizer.join(args.subList(2, args.size()));
+                client.profileMetadata().save();
+                client.notify("Updated description for '" + args.get(1) + "'", NotificationLevel.SUCCESS);
+            }
+            case "category", "cat" -> {
+                if (args.size() < 3) {
+                    client.notify("Usage: ; profile category <name> <category>", NotificationLevel.WARN);
+                    return;
+                }
+                client.profileMetadata().of(args.get(1)).category = args.get(2);
+                client.profileMetadata().save();
+                client.notify("Category set", NotificationLevel.SUCCESS);
+            }
+            case "context", "server" -> {
+                if (args.size() < 3) {
+                    client.notify("Usage: ; profile context <name> <server-or-world>", NotificationLevel.WARN);
+                    return;
+                }
+                client.profileMetadata().of(args.get(1)).context = args.get(2);
+                client.profileMetadata().save();
+                client.notify("Context set", NotificationLevel.SUCCESS);
+            }
+            case "default" -> {
+                if (args.size() < 2) {
+                    String current = client.profileMetadata().defaultProfile();
+                    client.notify(current.isEmpty() ? "No default profile set"
+                            : "Default profile: " + current, NotificationLevel.INFO);
+                    return;
+                }
+                client.profileMetadata().setDefault(args.get(1));
+                client.profileMetadata().save();
+                client.profileHistory().record(com.logvex.crystal.config.ProfileHistory.Action.DEFAULT_SET,
+                        args.get(1), "");
+                client.notify("Default profile set to '" + args.get(1) + "'", NotificationLevel.SUCCESS);
+            }
+            case "info" -> {
+                if (args.size() < 2) {
+                    client.notify("Usage: ; profile info <name>", NotificationLevel.WARN);
+                    return;
+                }
+                var meta = client.profileMetadata().peek(args.get(1));
+                if (meta == null) {
+                    client.notify("No metadata for '" + args.get(1) + "'", NotificationLevel.INFO);
+                    return;
+                }
+                client.notify(args.get(1) + " [" + meta.category + "]"
+                        + (meta.isDefault ? " (default)" : ""), NotificationLevel.INFO);
+                if (!meta.description.isBlank()) {
+                    client.notify("  " + meta.description, NotificationLevel.INFO);
+                }
+                if (!meta.context.isBlank()) {
+                    client.notify("  context: " + meta.context, NotificationLevel.INFO);
+                }
+            }
+            case "history" -> {
+                var entries = client.profileHistory().recent();
+                if (entries.isEmpty()) {
+                    client.notify("No profile history", NotificationLevel.INFO);
+                    return;
+                }
+                int shown = 0;
+                for (var entry : entries) {
+                    if (shown++ >= 15) {
+                        break;
+                    }
+                    client.notify(entry.action() + " " + entry.profile()
+                            + (entry.detail().isEmpty() ? "" : " \u00b7 " + entry.detail()),
+                            NotificationLevel.INFO);
+                }
+            }
             case "starters" -> client.notify("Starters: "
                     + String.join(", ", com.logvex.crystal.config.StarterProfiles.names()), NotificationLevel.INFO);
-            default -> client.notify("Usage: ; profile <list|save|load|delete|starters|gui> [name]",
+            default -> client.notify(
+                    "Usage: ; profile <list|save|overwrite|load|delete|rename|duplicate|describe|"
+                            + "category|context|default|info|history|starters|gui> [args]",
                     NotificationLevel.WARN);
         }
     }

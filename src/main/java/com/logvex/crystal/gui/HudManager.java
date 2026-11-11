@@ -38,6 +38,8 @@ public final class HudManager {
     private final Map<String, HudElement> elements = new LinkedHashMap<>();
     private final List<OverlayRenderer> overlays = new ArrayList<>();
     private final List<WorldEspProvider> worldEspProviders = new ArrayList<>();
+    /** Reusable draw-order buffer, refilled each frame; avoids per-frame allocation. */
+    private final List<HudElement> drawOrder = new ArrayList<>();
     private final ModuleManager modules;
     private final ThemeManager theme;
     private final HudLayout layout = new HudLayout();
@@ -310,7 +312,7 @@ public final class HudManager {
         int screenWidth = context.getScaledWindowWidth();
         int leftY = leftMargin;
         int rightY = rightMargin;
-        for (HudElement element : elements.values()) {
+        for (HudElement element : drawOrder()) {
             HudLayout.Entry entry = layout.entry(element.id());
             if (!entry.visible) {
                 continue;
@@ -331,7 +333,7 @@ public final class HudManager {
                 }
                 renderScaled(context, element, entry, client, tickDelta, x, y, right);
                 if (!entry.customPosition) {
-                    int advance = element.height(client) + 2;
+                    int advance = heightOf(element, entry, client) + 2;
                     if (right) {
                         rightY += advance;
                     } else {
@@ -357,6 +359,38 @@ public final class HudManager {
     }
 
     /**
+     * The elements in draw order: sorted by layer (ascending), then by registration order so
+     * the default layout is unchanged. The buffer is reused between frames to avoid a
+     * per-frame allocation; it is only rebuilt when a layer actually differs from insertion
+     * order.
+     */
+    public List<HudElement> drawOrder() {
+        drawOrder.clear();
+        drawOrder.addAll(elements.values());
+        boolean anyLayer = false;
+        for (HudElement element : drawOrder) {
+            if (layout.entry(element.id()).layer != 0) {
+                anyLayer = true;
+                break;
+            }
+        }
+        if (anyLayer) {
+            drawOrder.sort((a, b) -> Integer.compare(layout.entry(a.id()).layer, layout.entry(b.id()).layer));
+        }
+        return drawOrder;
+    }
+
+    /** The effective height of an element, honouring a per-element override when set. */
+    public int heightOf(HudElement element, HudLayout.Entry entry, MinecraftClient client) {
+        return entry.height > 0 ? entry.height : element.height(client);
+    }
+
+    /** The effective width of an element, honouring a per-element override when set. */
+    public int widthOf(HudElement element, HudLayout.Entry entry, MinecraftClient client) {
+        return entry.width > 0 ? entry.width : element.width(client);
+    }
+
+    /**
      * Computes the on-screen anchor of every element using the same stacking rules as
      * {@link #render}. The editor overlay and its hit-testing use this so their frames sit
      * where the elements are (or would be) drawn.
@@ -369,7 +403,7 @@ public final class HudManager {
         java.util.Map<String, int[]> result = new java.util.LinkedHashMap<>();
         int leftY = leftMargin;
         int rightY = rightMargin;
-        for (HudElement element : elements.values()) {
+        for (HudElement element : drawOrder()) {
             HudLayout.Entry entry = layout.entry(element.id());
             boolean right = element.column() == HudElement.Column.RIGHT;
             int x;
@@ -386,7 +420,7 @@ public final class HudManager {
             }
             result.put(element.id(), new int[]{x, y});
             if (!entry.customPosition) {
-                int advance = element.height(client) + 2;
+                int advance = heightOf(element, entry, client) + 2;
                 if (right) {
                     rightY += advance;
                 } else {
@@ -415,8 +449,8 @@ public final class HudManager {
             }
             this.currentOpacity = clamp01(entry.opacity);
             if (entry.background || entry.border) {
-                int w = element.width(client);
-                int h = element.height(client);
+                int w = widthOf(element, entry, client);
+                int h = heightOf(element, entry, client);
                 if (w > 0 && h > 0) {
                     Palette palette = theme.palette();
                     if (entry.background) {
@@ -450,15 +484,16 @@ public final class HudManager {
                                     int mouseX, int mouseY) {
         int screenWidth = context.getScaledWindowWidth();
         java.util.Map<String, int[]> anchors = anchors(client, screenWidth);
-        for (HudElement element : elements.values()) {
+        for (HudElement element : drawOrder()) {
             if (!element.draggable()) {
                 continue;
             }
             int[] anchor = anchors.getOrDefault(element.id(), new int[]{leftMargin, leftMargin});
+            HudLayout.Entry entry = layout.entry(element.id());
             int x = anchor[0];
             int y = anchor[1];
-            int w = Math.max(40, element.width(client));
-            int h = Math.max(12, element.height(client));
+            int w = Math.max(40, widthOf(element, entry, client));
+            int h = Math.max(12, heightOf(element, entry, client));
             boolean hovered = mouseX >= x && mouseX <= x + w && mouseY >= y && mouseY <= y + h;
             int border = hovered ? palette.primary() : com.logvex.crystal.util.ColorUtil.scaleAlpha(palette.border(), 0.6f);
             RenderUtil.roundedOutline(context, x - 2, y - 2, w + 4, h + 4, palette.radius(4), border);

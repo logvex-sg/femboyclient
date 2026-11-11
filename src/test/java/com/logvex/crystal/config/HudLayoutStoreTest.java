@@ -104,4 +104,35 @@ class HudLayoutStoreTest {
         assertTrue(restored.entry("watermark").background);
         assertTrue(restored.entry("watermark").border);
     }
+
+    @Test
+    void layerAndResizeOverridesRoundTrip() {
+        HudLayout layout = new HudLayout();
+        HudLayout.Entry entry = layout.entry("watermark");
+        entry.layer = 3;
+        entry.width = 120;
+        entry.height = 30;
+        JsonObject json = HudLayoutStore.toJson(layout);
+        HudLayout restored = new HudLayout();
+        HudLayoutStore.apply(json, restored);
+        assertEquals(3, restored.entry("watermark").layer);
+        assertEquals(120, restored.entry("watermark").width);
+        assertEquals(30, restored.entry("watermark").height);
+    }
+
+    @Test
+    void resizeOverridesAreClamped() {
+        JsonObject root = new JsonObject();
+        root.addProperty("schema", HudLayoutStore.SCHEMA_VERSION);
+        JsonObject elements = new JsonObject();
+        JsonObject entry = new JsonObject();
+        entry.addProperty("width", -50);
+        entry.addProperty("height", 99999);
+        elements.add("watermark", entry);
+        root.add("elements", elements);
+        HudLayout layout = new HudLayout();
+        HudLayoutStore.apply(root, layout);
+        assertEquals(0, layout.entry("watermark").width);
+        assertEquals(4096, layout.entry("watermark").height);
+    }
 }
