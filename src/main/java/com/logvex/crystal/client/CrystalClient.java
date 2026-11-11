@@ -78,6 +78,8 @@ public final class CrystalClient implements ClientModInitializer {
     private com.logvex.crystal.config.ProfileHistory profileHistory;
     /** Flat, searchable index over every module setting. */
     private com.logvex.crystal.config.SettingsCatalog settingsCatalog;
+    /** Diagnostics report service; created lazily by {@link #diagnostics()}. */
+    private com.logvex.crystal.diagnostics.DiagnosticsService diagnosticsService;
     /** Advanced workspaces: selective apply + preview over the profile store. */
     private com.logvex.crystal.workspace.AdvancedWorkspaceService workspaces;
     private final com.logvex.crystal.context.ContextProfileService contextProfiles =
@@ -1834,6 +1836,26 @@ public final class CrystalClient implements ClientModInitializer {
     /** Flat, searchable index over every module setting. */
     public com.logvex.crystal.config.SettingsCatalog settingsCatalog() {
         return settingsCatalog;
+    }
+
+    /**
+     * The diagnostics service: gathers module health, errors, cache counters and the
+     * performance verdict into an exportable report. Created lazily so it can read the
+     * module manager and error log once both exist.
+     */
+    public com.logvex.crystal.diagnostics.DiagnosticsService diagnostics() {
+        if (diagnosticsService == null) {
+            diagnosticsService = new com.logvex.crystal.diagnostics.DiagnosticsService(modules, errors());
+            diagnosticsService.publishEnvironment("client", "LOGVEX CRYSTAL");
+            try {
+                diagnosticsService.publishEnvironment("minecraft",
+                        net.minecraft.client.MinecraftClient.getInstance().getGameVersion());
+            } catch (Throwable ignored) {
+                // The game version is unavailable very early in bootstrap; omit it.
+            }
+            diagnosticsService.publishEnvironment("loader", "fabric");
+        }
+        return diagnosticsService;
     }
 
     /** Advanced workspaces: selective apply and preview over the profile store. */

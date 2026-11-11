@@ -92,7 +92,7 @@ public final class CommandManager {
             "assets", "version", "ver", "extensions", "ext", "scripts", "script", "ai",
             "center", "commandcenter", "hub", "tools", "worldtools", "wt", "build", "blueprint",
             "schematic", "nav", "navigation", "route", "routes", "bookmark", "bookmarks",
-            "settings", "setting", "find");
+            "settings", "setting", "find", "perf", "report", "diagreport");
 
     /**
      * Handles a raw chat line. Returns true when the line was a Crystal command and must
@@ -233,6 +233,8 @@ public final class CommandManager {
             case "extensions", "ext" -> extensions(args);
             case "scripts", "script" -> scripts();
             case "diag" -> diagnostics();
+            case "perf" -> perf(args);
+            case "report", "diagreport" -> report(args);
             case "crystal", "ac" -> crystalAnalysis();
             case "assets" -> assets(args);
             case "version", "ver" -> client.notify("LOGVEX CRYSTAL " + version(), NotificationLevel.INFO);
@@ -2920,6 +2922,87 @@ public final class CommandManager {
             return;
         }
         diagnostics.report();
+    }
+
+    /**
+     * {@code ; perf [findings|history|clear]} - the performance dashboard from the command
+     * surface. Reads the same measured numbers the Performance workspace charts, so nothing
+     * is recomputed here.
+     */
+    private void perf(List<String> args) {
+        var center = client.commandCenter();
+        if (center == null) {
+            client.notify("Performance service unavailable", NotificationLevel.WARN);
+            return;
+        }
+        String sub = args.isEmpty() ? "summary" : args.get(0).toLowerCase(Locale.ROOT);
+        var report = center.performance();
+        switch (sub) {
+            case "findings", "issues" -> {
+                if (report.findings().isEmpty()) {
+                    client.notify("No performance findings \u2661", NotificationLevel.SUCCESS);
+                    return;
+                }
+                for (var finding : report.findings()) {
+                    client.notify("[" + finding.severity().name() + "] " + finding.describe(),
+                            finding.severity() == com.logvex.crystal.commandcenter.HealthStatus.CRITICAL
+                                    ? NotificationLevel.ERROR : NotificationLevel.INFO);
+                }
+            }
+            case "history" -> {
+                var history = client.performanceHistory();
+                client.notify("History: " + history.sampleCount() + " samples over "
+                        + history.intervalMillis() + "ms interval", NotificationLevel.INFO);
+                for (var series : history.populated()) {
+                    client.notify("  " + series.label() + ": " + series.size() + " points ("
+                            + series.unit() + ")", NotificationLevel.INFO);
+                }
+            }
+            case "clear" -> {
+                client.performanceHistory().clear();
+                client.notify("Performance history cleared", NotificationLevel.SUCCESS);
+            }
+            default -> client.notify(report.summary(), NotificationLevel.INFO);
+        }
+    }
+
+    /**
+     * {@code ; report [export]} - the full diagnostics report. Without {@code export} it prints
+     * a roll-up and the first lines; with {@code export} it writes the whole document to
+     * {@code <config>/logvex-crystal/diagnostics.txt}.
+     */
+    private void report(List<String> args) {
+        var center = client.commandCenter();
+        var diagnostics = client.diagnostics();
+        if (center == null || diagnostics == null) {
+            client.notify("Diagnostics unavailable", NotificationLevel.WARN);
+            return;
+        }
+        var report = diagnostics.build(center.performance());
+        boolean export = !args.isEmpty() && args.get(0).equalsIgnoreCase("export");
+        if (export) {
+            java.nio.file.Path file = com.logvex.crystal.config.ConfigPaths.directory()
+                    .resolve("diagnostics.txt");
+            try {
+                diagnostics.export(report, file);
+                client.notify("Diagnostics written to " + file.getFileName(), NotificationLevel.SUCCESS);
+            } catch (java.io.IOException e) {
+                client.notify("Export failed: " + e.getMessage(), NotificationLevel.ERROR);
+            }
+            return;
+        }
+        client.notify(report.summary(), NotificationLevel.INFO);
+        var lines = report.lines();
+        int shown = 0;
+        for (String line : lines) {
+            if (shown++ >= 16) {
+                client.notify("\u2026 use ; report export for the full document", NotificationLevel.INFO);
+                break;
+            }
+            if (!line.isBlank()) {
+                client.notify(line, NotificationLevel.INFO);
+            }
+        }
     }
 
     private void crystalAnalysis() {
