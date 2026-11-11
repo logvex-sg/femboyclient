@@ -192,6 +192,7 @@ public final class CrystalClient implements ClientModInitializer {
     private AutoSave autoSave;
     /** Config files that failed to parse during load; reported once the notification manager exists. */
     private final java.util.List<String> loadWarnings = new java.util.ArrayList<>();
+    private final java.util.List<String> loadRestores = new java.util.ArrayList<>();
     /** True while reading config from disk, so loading does not immediately re-mark it dirty. */
     private boolean loadingConfig;
 
@@ -240,6 +241,7 @@ public final class CrystalClient implements ClientModInitializer {
         // Collect config files that failed to parse during load, and warn about them once
         // the notification manager exists (see the end of onInitializeClient).
         ConfigIo.onRecovery(loadWarnings::add);
+        ConfigIo.onRestore(loadRestores::add);
 
         theme = new ThemeManager();
         appearanceStore = new AppearanceStore(ConfigPaths.appearance());
@@ -393,6 +395,10 @@ public final class CrystalClient implements ClientModInitializer {
         for (String file : loadWarnings) {
             LOG.warn("Config file {} could not be read; defaults were used", file);
             notifications.warn("Config '" + file + "' was unreadable \u2014 defaults used (backup kept)");
+        }
+        for (String file : loadRestores) {
+            LOG.info("Config file {} was restored from its backup", file);
+            notifications.info("Config '" + file + "' was restored from its backup");
         }
         LOG.info("LOGVEX CRYSTAL ready: {} modules, theme '{}'", modules.size(), theme.palette().preset().label());
     }

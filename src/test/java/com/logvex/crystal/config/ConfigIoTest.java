@@ -124,4 +124,87 @@ class ConfigIoTest {
         ConfigIo.writeObject(nested, new JsonObject());
         assertTrue(Files.exists(nested));
     }
+
+    @Test
+    void isCorruptDistinguishesMissingMalformedAndHealthy(@TempDir Path dir) throws IOException {
+        Path missing = dir.resolve("missing.json");
+        assertFalse(ConfigIo.isCorrupt(missing), "a missing file is not corrupt");
+
+        Path healthy = dir.resolve("ok.json");
+        JsonObject ok = new JsonObject();
+        ok.addProperty("v", 1);
+        ConfigIo.writeObject(healthy, ok);
+        assertFalse(ConfigIo.isCorrupt(healthy));
+
+        Path broken = dir.resolve("broken.json");
+        Files.writeString(broken, "{ not json", StandardCharsets.UTF_8);
+        assertTrue(ConfigIo.isCorrupt(broken));
+    }
+
+    @Test
+    void corruptFileIsRestoredFromBackupOnRead(@TempDir Path dir) throws IOException {
+        Path file = dir.resolve("data.json");
+        JsonObject first = new JsonObject();
+        first.addProperty("generation", 1);
+        ConfigIo.writeObject(file, first);
+        JsonObject second = new JsonObject();
+        second.addProperty("generation", 2);
+        ConfigIo.writeObject(file, second);
+
+        Files.writeString(file, "{ corrupted", StandardCharsets.UTF_8);
+
+        java.util.List<String> restores = new java.util.ArrayList<>();
+        ConfigIo.onRestore(restores::add);
+        JsonObject read = ConfigIo.readObject(file);
+        ConfigIo.onRestore(null);
+        assertNotNull(read, "the backup should have been restored and read");
+        assertEquals(1, read.get("generation").getAsInt());
+        assertEquals(java.util.List.of("data.json"), restores);
+    }
+
+    @Test
+    void missingFileIsRestoredFromBackup(@TempDir Path dir) throws IOException {
+        Path file = dir.resolve("data.json");
+        JsonObject first = new JsonObject();
+        first.addProperty("generation", 1);
+        ConfigIo.writeObject(file, first);
+        JsonObject second = new JsonObject();
+        second.addProperty("generation", 2);
+        ConfigIo.writeObject(file, second);
+
+        Files.delete(file);
+        JsonObject read = ConfigIo.readObject(file);
+        assertNotNull(read);
+        assertEquals(1, read.get("generation").getAsInt());
+    }
+
+    @Test
+    void healthyFileIsNeverOverwrittenByBackup(@TempDir Path dir) throws IOException {
+        Path file = dir.resolve("data.json");
+        JsonObject first = new JsonObject();
+        first.addProperty("generation", 1);
+        ConfigIo.writeObject(file, first);
+        JsonObject second = new JsonObject();
+        second.addProperty("generation", 2);
+        ConfigIo.writeObject(file, second);
+
+        JsonObject read = ConfigIo.readObject(file);
+        assertEquals(2, read.get("generation").getAsInt(), "the live file wins over the backup");
+    }
+
+    @Test
+    void corruptBackupIsNotUsed(@TempDir Path dir) throws IOException {
+        Path file = dir.resolve("data.json");
+        JsonObject first = new JsonObject();
+        first.addProperty("generation", 1);
+        ConfigIo.writeObject(file, first);
+        JsonObject second = new JsonObject();
+        second.addProperty("generation", 2);
+        ConfigIo.writeObject(file, second);
+
+        Files.writeString(file, "{ corrupted", StandardCharsets.UTF_8);
+        Files.writeString(ConfigIo.backupPath(file), "{ also corrupted", StandardCharsets.UTF_8);
+
+        assertNull(ConfigIo.readObject(file), "a corrupt backup must not be trusted");
+    }
 }
