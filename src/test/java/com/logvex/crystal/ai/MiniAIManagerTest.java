@@ -198,12 +198,17 @@ class MiniAIManagerTest {
         MiniAIManager manager = new MiniAIManager(dir, settings, (spec, threads) -> model, this::tinySpec);
         manager.ensureLoaded();
         waitFor(() -> manager.state() == MiniAIManager.State.READY);
-        // Simulate a use in the past, then tick well beyond the idle window.
+        // Simulate a use in the past, then tick well beyond the idle window. The result callback
+        // fires from inside the worker, so the executor can still look busy for a moment after the
+        // latch opens; production ticks every frame, so mirror that by ticking inside the wait.
         CountDownLatch latch = new CountDownLatch(1);
         manager.submitOnce("k", "p", text -> latch.countDown());
         latch.await(5, TimeUnit.SECONDS);
-        manager.tick(System.currentTimeMillis() + 10 * 60_000L);
-        waitFor(() -> !model.loaded);
+        long future = System.currentTimeMillis() + 10 * 60_000L;
+        waitFor(() -> {
+            manager.tick(future);
+            return !model.loaded;
+        });
         assertFalse(manager.isLoaded());
         manager.close();
     }

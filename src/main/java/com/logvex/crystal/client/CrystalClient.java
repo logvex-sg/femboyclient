@@ -211,6 +211,7 @@ public final class CrystalClient implements ClientModInitializer {
     private static final String SHOT_DIR = System.getProperty("logvex.smoke.shots", "");
     private int smokeTick;
     private int smokeStage;
+    private boolean smokeFailed;
 
     /** Saves a screenshot of the current framebuffer when the dev shot directory is set. */
     private void shot(String name) {
@@ -925,6 +926,14 @@ public final class CrystalClient implements ClientModInitializer {
                 runSmokeStep(client);
             }
         } catch (Throwable t) {
+            if (SMOKE && !smokeFailed) {
+                // Fail fast: a failed smoke stage would otherwise re-throw every tick and bury
+                // the real cause under thousands of copies. Log the first failure, then stop.
+                smokeFailed = true;
+                LOG.error("LOGVEX CRYSTAL smoke FAILED at stage {} (tick {})", smokeStage, smokeTick, t);
+                client.scheduleStop();
+                return;
+            }
             LOG.error("Uncaught error in client tick", t);
         }
     }
@@ -1040,6 +1049,11 @@ public final class CrystalClient implements ClientModInitializer {
                 for (String esp : new String[]{"EntityEsp", "CrystalEsp", "StorageEsp", "HoleEsp"}) {
                     var module = modules.byName(esp);
                     require(module != null, "ESP module not registered: " + esp);
+                    // Normalise first: a previous run may have left the module enabled on disk,
+                    // so a bare toggle would disable rather than enable it.
+                    if (module.isEnabled()) {
+                        module.disable();
+                    }
                     module.toggle(modules);
                     require(module.isEnabled(), esp + " did not enable");
                     module.toggle(modules);
@@ -1456,12 +1470,14 @@ public final class CrystalClient implements ClientModInitializer {
                 // for a click or an input records a failure, which stage 23 then asserts against.
                 int on = 0;
                 int refused = 0;
+                java.util.List<com.logvex.crystal.module.Module> turnedOn = new java.util.ArrayList<>();
                 for (var module : modules.all()) {
                     if (module.isAlwaysEnabled() || module.isEnabled()) {
                         on++;
                         continue;
                     }
                     if (module.enable(modules)) {
+                        turnedOn.add(module);
                         on++;
                     } else {
                         refused++;
@@ -1469,6 +1485,11 @@ public final class CrystalClient implements ClientModInitializer {
                 }
                 for (int i = 0; i < 40; i++) {
                     modules.tickAll();
+                }
+                // Restore the pre-stage state so the coexistence run does not persist an
+                // all-modules-enabled configuration on shutdown.
+                for (var module : turnedOn) {
+                    module.disable();
                 }
                 LOG.info("LOGVEX CRYSTAL in-world coexistence: {} enabled together, {} refused (conflict/dependency)",
                         on, refused);
