@@ -30,6 +30,9 @@ what lets the whole HUD run on the render thread without coordination.
 | `crosshair` | Custom crosshair | visible |
 | `session` | Session statistics / playtime | visible |
 | `entitycount` | Entity count panel | visible |
+| `direction` | Facing direction and yaw | visible |
+| `totems` | Held totem count | visible |
+| `clock` | Local wall-clock time | visible |
 | `worldinfo` | World information | visible |
 | `keystrokes` | Keybind list | visible |
 | `baritone` | Baritone status | hidden (opt-in) |

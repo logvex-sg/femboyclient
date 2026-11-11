@@ -90,6 +90,15 @@ public final class HudManager {
                 HudManager::potionLines));
         register(new SimpleHudElement("speed", HudElement.Column.RIGHT, 70, false,
                 HudManager::speedLines));
+        register(new SimpleHudElement("direction", HudElement.Column.LEFT, 66, false,
+                client -> client.player == null ? new String[0] : new String[]{
+                        "facing " + com.logvex.crystal.world.WorldInfo.facing(client.player.getYaw()),
+                        com.logvex.crystal.gui.hud.HudReadouts.yawLine(client.player.getYaw())}));
+        register(new SimpleHudElement("totems", HudElement.Column.RIGHT, 74, false,
+                HudManager::totemLines));
+        register(new SimpleHudElement("clock", HudElement.Column.RIGHT, 60, false,
+                client -> new String[]{com.logvex.crystal.gui.hud.HudReadouts.clock(
+                        System.currentTimeMillis(), true)}));
         register(new com.logvex.crystal.gui.hud.CrosshairHudElement());
         register(new com.logvex.crystal.gui.hud.SessionHudElement());
         register(new com.logvex.crystal.gui.hud.EntityCountHudElement());
@@ -191,6 +200,18 @@ public final class HudManager {
         var velocity = client.player.getVelocity();
         double bps = Math.sqrt(velocity.x * velocity.x + velocity.z * velocity.z) * 20.0;
         return new String[]{String.format("%.2f bps", bps)};
+    }
+
+    /** Held totem count: main inventory (including the offhand) plus any totem in the offhand. */
+    private static String[] totemLines(MinecraftClient client) {
+        if (client.player == null) {
+            return new String[0];
+        }
+        int total = com.logvex.crystal.player.InventoryUtil.count(client, net.minecraft.item.Items.TOTEM_OF_UNDYING);
+        if (client.player.getOffHandStack().isOf(net.minecraft.item.Items.TOTEM_OF_UNDYING)) {
+            total += client.player.getOffHandStack().getCount();
+        }
+        return new String[]{com.logvex.crystal.gui.hud.HudReadouts.totemLine(total)};
     }
 
     public void register(HudElement element) {
