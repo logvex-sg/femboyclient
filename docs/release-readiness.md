@@ -1,7 +1,7 @@
 # LOGVEX CRYSTAL — Release Readiness
 
-> Verified against the actual source tree at commit `8259b17` (branch
-> `feat/femboy-product-depth`) with a real `./gradlew build` on a JDK 25 build JVM / Java 21
+> Verified against the actual source tree at commit `23f1849` (branch
+> `feat/automation-world-tools`) with a real `./gradlew build` on a JDK 25 build JVM / Java 21
 > mod toolchain. No result below is copied from an earlier plan; each claim names the file or
 > test it rests on.
 
@@ -10,12 +10,12 @@
 | Check | Command | Result |
 | --- | --- | --- |
 | Full build | `JAVA_HOME=~/.local/logvex-jdk-25 ./gradlew build` | **BUILD SUCCESSFUL** |
-| Tests | parse `build/test-results/test/*.xml` | **752 tests, 0 failures, 0 errors, 0 skipped, 101 classes** |
-| Main classes | `find src/main/java -name '*.java' \| wc -l` | 403 |
-| Test classes | `find src/test/java -name '*.java' \| wc -l` | 102 |
-| Registered modules | `ModuleRegistry.EXPECTED_MODULE_COUNT` | 70 (asserted by `ModuleRegistryTest`) |
-| Standard artifact | `build/dist/1.21.11/standard/` | `logvex-crystal-1.21.11-1.0.0.jar` |
-| Overseer artifact | `build/dist/1.21.11/overseer/` | `logvex-crystal-overseer-1.21.11-1.0.0.jar` |
+| Tests | parse `build/test-results/test/*.xml` | **1138 tests, 0 failures, 0 errors, 0 skipped, 148 classes** |
+| Main classes | `find src/main/java -name '*.java' \| wc -l` | 530 |
+| Test classes | `find src/test/java -name '*.java' \| wc -l` | 149 |
+| Registered modules | `ModuleRegistry.EXPECTED_MODULE_COUNT` | 103 (asserted by `ModuleRegistryTest`) |
+| Standard artifact | `build/dist/1.21.11/standard/` | `logvex-crystal-1.21.11-1.1.0.jar` |
+| Overseer artifact | `build/dist/1.21.11/overseer/` | `logvex-crystal-overseer-1.21.11-1.1.0.jar` |
 | Guards | `./gradlew adapterGuard checkInventory checkManifest checkVersionRegistry checkSbom` | **BUILD SUCCESSFUL** |
 | Multi-version build | `./gradlew verifyAll` | **BUILD SUCCESSFUL** (standard + overseer for 1.21.9 / 1.21.10 / 1.21.11) |
 
@@ -176,7 +176,7 @@ they cannot run in the pure-logic test source set, which Loom gives no Minecraft
 
 ## 5. Bottom line
 
-The client **builds cleanly and passes its entire automated suite (752 tests, 0 failures)**.
+The client **builds cleanly and passes its entire automated suite (1138 tests, 0 failures)**.
 Every registered module has a real implementation; there are no placeholders, no fabricated
 results and no invented APIs. What remains is honest runtime validation against a live game,
 enumerated in §4 and in `docs/baritone-integration.md` §6.1 — not missing code.
