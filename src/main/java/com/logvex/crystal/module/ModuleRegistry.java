@@ -59,7 +59,7 @@ import com.logvex.crystal.module.render.TracersModule;
 public final class ModuleRegistry {
 
     /** Number of concrete modules registered; asserted by the registry test. */
-    public static final int EXPECTED_MODULE_COUNT = 100;
+    public static final int EXPECTED_MODULE_COUNT = 103;
 
     private ModuleRegistry() {
     }
@@ -133,6 +133,9 @@ public final class ModuleRegistry {
         manager.register(new com.logvex.crystal.module.hud.ClockModule());
         manager.register(new com.logvex.crystal.module.hud.ServerInfoModule());
         manager.register(new com.logvex.crystal.module.hud.InventoryStatusModule());
+        manager.register(new com.logvex.crystal.module.hud.PositionHistoryModule());
+        manager.register(new com.logvex.crystal.module.hud.ItemCountModule());
+        manager.register(new com.logvex.crystal.module.hud.CombatStatsModule());
         // Misc
         manager.register(new AntiAfkModule());
         manager.register(new AutoReconnectModule());

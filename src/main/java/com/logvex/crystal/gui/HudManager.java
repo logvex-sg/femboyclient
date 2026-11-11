@@ -103,6 +103,12 @@ public final class HudManager {
                 HudManager::serverLines));
         register(new SimpleHudElement("inventory", HudElement.Column.RIGHT, 92, false,
                 HudManager::inventoryLines));
+        register(new SimpleHudElement("position-history", HudElement.Column.LEFT, 100, false,
+                HudManager::positionHistoryLines));
+        register(new SimpleHudElement("item-counts", HudElement.Column.RIGHT, 96, false,
+                HudManager::itemCountLines));
+        register(new SimpleHudElement("combat-stats", HudElement.Column.RIGHT, 84, false,
+                HudManager::combatLines));
         register(new com.logvex.crystal.gui.hud.CrosshairHudElement());
         register(new com.logvex.crystal.gui.hud.SessionHudElement());
         register(new com.logvex.crystal.gui.hud.EntityCountHudElement());
@@ -242,6 +248,52 @@ public final class HudManager {
         }
         return new String[]{com.logvex.crystal.gui.hud.HudReadouts.inventoryLine(
                 used, com.logvex.crystal.player.InventoryUtil.MAIN_SIZE)};
+    }
+
+    /** The last few sampled positions from the navigation service, newest first. */
+    private static String[] positionHistoryLines(MinecraftClient client) {
+        if (client.player == null) {
+            return new String[0];
+        }
+        var recent = com.logvex.crystal.client.CrystalClient.get().navigation().recentPositions();
+        int shown = Math.min(3, recent.size());
+        String[] lines = new String[shown];
+        for (int i = 0; i < shown; i++) {
+            var pos = recent.get(i);
+            lines[i] = com.logvex.crystal.gui.hud.HudReadouts.positionLine(pos.x(), pos.y(), pos.z());
+        }
+        return lines;
+    }
+
+    /** Counts of the crystal-PvP items the player is carrying in the main inventory. */
+    private static String[] itemCountLines(MinecraftClient client) {
+        if (client.player == null) {
+            return new String[0];
+        }
+        int totems = com.logvex.crystal.player.InventoryUtil.count(client,
+                net.minecraft.item.Items.TOTEM_OF_UNDYING);
+        int crystals = com.logvex.crystal.player.InventoryUtil.count(client,
+                net.minecraft.item.Items.END_CRYSTAL);
+        int obsidian = com.logvex.crystal.player.InventoryUtil.count(client,
+                net.minecraft.item.Items.OBSIDIAN);
+        int pearls = com.logvex.crystal.player.InventoryUtil.count(client,
+                net.minecraft.item.Items.ENDER_PEARL);
+        return new String[]{
+                "crystals " + crystals,
+                "obsidian " + obsidian,
+                "totems " + totems,
+                "pearls " + pearls};
+    }
+
+    /** Crystal damage to the current target, to the player, and whether it is lethal. */
+    private static String[] combatLines(MinecraftClient client) {
+        if (client.player == null) {
+            return new String[0];
+        }
+        var combat = com.logvex.crystal.client.CrystalClient.get().combat();
+        double toTarget = combat.currentTarget() == null ? -1 : combat.crystalDamageToTarget();
+        return new String[]{com.logvex.crystal.gui.hud.HudReadouts.combatLine(
+                toTarget, combat.crystalDamageToSelf(), combat.targetLethal())};
     }
 
     public void register(HudElement element) {

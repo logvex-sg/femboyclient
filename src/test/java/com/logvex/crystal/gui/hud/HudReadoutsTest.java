@@ -69,4 +69,16 @@ class HudReadoutsTest {
         assertEquals("inv 36/36  free 0", HudReadouts.inventoryLine(40, 36));
         assertEquals("inv 0/36  free 36", HudReadouts.inventoryLine(-5, 36));
     }
+
+    @Test
+    void positionLineIsSpaceSeparated() {
+        assertEquals("12 -60 34", HudReadouts.positionLine(12, -60, 34));
+    }
+
+    @Test
+    void combatLineHandlesNoCrystalAndLethal() {
+        assertEquals("crystal -", HudReadouts.combatLine(-1, 3.5, false));
+        assertEquals("crystal 12.5/4.0", HudReadouts.combatLine(12.5, 4.0, false));
+        assertEquals("crystal 12.5/4.0  LETHAL", HudReadouts.combatLine(12.5, 4.0, true));
+    }
 }

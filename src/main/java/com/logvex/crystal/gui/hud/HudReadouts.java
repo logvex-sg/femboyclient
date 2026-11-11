@@ -60,4 +60,25 @@ public final class HudReadouts {
         int clamped = Math.max(0, Math.min(usedSlots, totalSlots));
         return "inv " + clamped + "/" + totalSlots + "  free " + (totalSlots - clamped);
     }
+
+    /** A single sampled position as {@code "x y z"}. */
+    public static String positionLine(int x, int y, int z) {
+        return x + " " + y + " " + z;
+    }
+
+    /**
+     * One-line crystal-damage summary.
+     *
+     * @param toTarget damage the current crystal would deal to the target, or a negative
+     *                 value when there is no crystal under consideration
+     * @param toSelf   damage the same crystal would deal to the player
+     * @param lethal   whether the target would die from it
+     */
+    public static String combatLine(double toTarget, double toSelf, boolean lethal) {
+        if (toTarget < 0) {
+            return "crystal -";
+        }
+        String base = String.format("crystal %.1f/%.1f", toTarget, toSelf);
+        return lethal ? base + "  LETHAL" : base;
+    }
 }

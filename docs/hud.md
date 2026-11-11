@@ -35,6 +35,9 @@ what lets the whole HUD run on the render thread without coordination.
 | `clock` | Local wall-clock time | visible |
 | `server` | Server host and ping | visible |
 | `inventory` | Inventory fill and free slots | visible |
+| `position-history` | Recent sampled positions | visible |
+| `item-counts` | Crystal/obsidian/totem/pearl counts | visible |
+| `combat-stats` | Crystal damage and lethality | visible |
 | `worldinfo` | World information | visible |
 | `keystrokes` | Keybind list | visible |
 | `baritone` | Baritone status | hidden (opt-in) |
