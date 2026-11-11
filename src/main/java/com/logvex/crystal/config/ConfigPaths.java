@@ -65,6 +65,11 @@ public final class ConfigPaths {
         return directory().resolve("automation.json");
     }
 
+    /** Persisted container labels, keyed by dimension and block position. */
+    public static Path containerLabels() {
+        return directory().resolve("container-labels.json");
+    }
+
     /** Persisted extension approval decisions. */
     public static Path extensions() {
         return directory().resolve("extensions.json");

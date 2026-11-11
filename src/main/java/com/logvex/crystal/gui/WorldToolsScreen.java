@@ -289,6 +289,42 @@ public final class WorldToolsScreen extends Screen {
                             : client.modules().byClass(com.logvex.crystal.module.automation.AutoTrashAutomation.class);
                     return module == null ? "trash module unavailable" : module.protectedSummary();
                 }));
+        tools.add(new Tool("Item database", Area.STORAGE,
+                "Search the offline item catalogue by id or name (uses the search box).",
+                () -> {
+                    var db = com.logvex.crystal.storage.ItemDatabase.get();
+                    var matches = db.search(search);
+                    if (matches.isEmpty()) {
+                        return "no catalogue match for '" + search + "'";
+                    }
+                    var first = matches.get(0);
+                    return matches.size() + " match(es); e.g. " + first.id() + " = " + first.name()
+                            + " (" + first.category() + ", stack " + first.maxStack() + ")";
+                }));
+        tools.add(new Tool("Container label", Area.STORAGE,
+                "Label the currently open container with the search box text.",
+                () -> {
+                    MinecraftClient mc = MinecraftClient.getInstance();
+                    var handler = com.logvex.crystal.automation.inventory.InventoryActions.handler(mc);
+                    if (handler == null
+                            || !com.logvex.crystal.automation.inventory.InventoryActions.containerOpen(mc)) {
+                        return "no container open";
+                    }
+                    if (search.isBlank()) {
+                        return "type a label in the search box first";
+                    }
+                    if (mc == null || mc.player == null || mc.world == null) {
+                        return "not in a world";
+                    }
+                    var pos = mc.player.getBlockPos();
+                    String key = com.logvex.crystal.storage.ContainerLabels.key(
+                            mc.world.getRegistryKey().getValue().toString(),
+                            pos.getX(), pos.getY(), pos.getZ());
+                    var labels = com.logvex.crystal.storage.ContainerLabels.get();
+                    labels.set(key, search);
+                    labels.save();
+                    return "labelled " + key + " as '" + search + "'";
+                }));
         return tools;
     }
 

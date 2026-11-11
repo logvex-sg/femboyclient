@@ -75,6 +75,13 @@ automation/inventory/InventoryActions   the accessor that reads a live handler
 * Protected-item rules — `AutoTrashAutomation.protectedSummary()`/`protectedItems()` and
   `TrashRules` define what sorting and trash must never touch; protected stacks are flagged in
   the snapshot so the GUI can grey them out rather than suggesting a merge the user forbade.
+* Searchable item database — `ItemDatabase` is an offline, Minecraft-independent catalogue of
+  item ids with names, categories and max stack sizes. The **Item database** tool searches it
+  using the screen's search box (by id or name) and reports the match count and an example row.
+* Container labeling — `ContainerLabels` stores a user-assigned label per container, keyed by
+  dimension and block position, in `container-labels.json`. The **Container label** tool labels
+  the currently open container with the search-box text. Only containers the player has opened
+  are ever keyed; there is no discovery of containers the player cannot see.
 
 `StorageScanner` walks exactly two things: the 36-slot player inventory, always, and the slots of
 a container screen the server has already opened for the player. It never loads a chunk, never

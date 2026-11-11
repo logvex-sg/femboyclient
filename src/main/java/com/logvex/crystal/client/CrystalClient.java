@@ -311,6 +311,7 @@ public final class CrystalClient implements ClientModInitializer {
 
         favoritesStore = new FavoritesStore(ConfigPaths.favorites());
         favoritesStore.load();
+        com.logvex.crystal.storage.ContainerLabels.get().load();
         profileService = new ProfileService(new ProfileManager(ConfigPaths.profiles()), config,
                 hudLayoutStore, appearanceStore, hud.layout(), theme.settings(), this::afterConfigApply);
         profileMetadata = new com.logvex.crystal.config.ProfileMetadataStore(ConfigPaths.profileMetadata());
