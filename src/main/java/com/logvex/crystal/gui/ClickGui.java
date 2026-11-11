@@ -26,7 +26,6 @@ import com.logvex.crystal.theme.ThemeManager;
 import com.logvex.crystal.theme.ThemePreset;
 import com.logvex.crystal.theme.ThemeVariant;
 import com.logvex.crystal.util.Animator;
-import com.logvex.crystal.util.BestEffort;
 import com.logvex.crystal.util.ColorUtil;
 import com.logvex.crystal.util.KeyNames;
 import java.io.IOException;
@@ -162,6 +161,19 @@ public final class ClickGui extends Screen {
         return false;
     }
 
+    /**
+     * Honours the theme's Blur toggle. Vanilla calls this once per frame from
+     * {@code renderBackground}; when the toggle (or reduced motion) is off we skip the backdrop
+     * blur entirely rather than blurring a second time from {@code render}.
+     */
+    @Override
+    protected void applyBlur(net.minecraft.client.gui.DrawContext context) {
+        if (!theme.settings().blur || theme.settings().reducedMotion) {
+            return;
+        }
+        super.applyBlur(context);
+    }
+
     private void setStatus(String message) {
         this.status = message;
         this.statusAt = System.currentTimeMillis();
@@ -192,15 +204,10 @@ public final class ClickGui extends Screen {
                     ColorUtil.scaleAlpha(gradient.topColor(), wash),
                     ColorUtil.scaleAlpha(gradient.bottomColor(), wash));
         }
-        if (theme.settings().blur && !theme.settings().reducedMotion) {
-            try {
-                context.applyBlur();
-            } catch (Throwable t) {
-                // Blur is best-effort; some pipelines do not support it. Report once so a
-                // persistently unsupported blur is visible, then stop retrying the log.
-                BestEffort.report("gui-blur", "ClickGUI blur", t);
-            }
-        }
+        // The backdrop blur is applied by the vanilla frame pipeline: Screen.renderWithTooltip
+        // calls renderBackground, which calls applyBlur exactly once per frame. Calling
+        // context.applyBlur() here as well throws "Can only blur once per frame", so the theme's
+        // blur toggle is honoured by overriding applyBlur (see below) rather than blurring here.
 
         // Everything below lays out in virtual coordinates so the UI-scale setting can
         // resize the whole interface without touching a single layout constant.

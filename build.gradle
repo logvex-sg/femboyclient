@@ -176,6 +176,11 @@ tasks.matching { it.name == 'runClient' }.configureEach {
     if (project.hasProperty('shots')) {
         jvmArgs "-Dlogvex.smoke.shots=${project.property('shots')}"
     }
+    // `-Pworld=<saveName>` joins that singleplayer save after the GUI stages and runs the
+    // in-world checks against a real loaded world (see CrystalClient.runSmokeStep).
+    if (project.hasProperty('world')) {
+        jvmArgs "-Dlogvex.smoke.world=${project.property('world')}"
+    }
 }
 
 // ---------------------------------------------------------------------------------------

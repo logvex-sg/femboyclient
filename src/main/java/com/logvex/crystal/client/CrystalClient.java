@@ -192,9 +192,21 @@ public final class CrystalClient implements ClientModInitializer {
     /** True while reading config from disk, so loading does not immediately re-mark it dirty. */
     private boolean loadingConfig;
 
+    /**
+     * Opt-in in-world driver: {@code -Dlogvex.smoke.world=<saveName>} joins that singleplayer
+     * save once the GUI stages are done, then runs the world-dependent checks. The world stages
+     * exist because the default smoke sequence runs on the title screen with no world loaded, so
+     * nothing that reads the world (combat, movement, block scans, ESP collection) is ever
+     * exercised. Requires the save to already exist under {@code run/saves/<saveName>}.
+     */
+    private static final String SMOKE_WORLD = System.getProperty("logvex.smoke.world", "");
+
     /** Opt-in headless driver: {@code -Dlogvex.smoke=true -Dlogvex.smoke.ticks=N}. */
     private static final boolean SMOKE = Boolean.getBoolean("logvex.smoke");
-    private static final int SMOKE_TICKS = Integer.getInteger("logvex.smoke.ticks", 560);
+    // A world join loads chunks asynchronously, so it needs a much larger tick budget than the
+    // title-screen sequence.
+    private static final int SMOKE_TICKS = Integer.getInteger("logvex.smoke.ticks",
+            SMOKE_WORLD.isEmpty() ? 560 : 2000);
     /** Optional directory for dev screenshots of the smoke stages. */
     private static final String SHOT_DIR = System.getProperty("logvex.smoke.shots", "");
     private int smokeTick;
@@ -1359,6 +1371,85 @@ public final class CrystalClient implements ClientModInitializer {
                 require(!diagnostics.toggleDebugMode(), "debug mode did not toggle off");
                 LOG.info("LOGVEX CRYSTAL diagnostics OK ({} line(s), {} cache counter(s))",
                         report.lines().size(), diagnostics.caches().size());
+                smokeStage++;
+            }
+            case 19 -> {
+                if (smokeTick < 560) {
+                    return;
+                }
+                if (SMOKE_WORLD.isEmpty()) {
+                    // No world requested: the GUI sequence is complete, so finish.
+                    LOG.info("LOGVEX CRYSTAL smoke OK after {} ticks ({} modules)", smokeTick, modules.size());
+                    client.scheduleStop();
+                    return;
+                }
+                // Join the pre-generated singleplayer save. The join is asynchronous (the
+                // integrated server boots and streams chunks), so this stage only kicks it off;
+                // stage 20 waits for the player and world to actually appear.
+                LOG.info("LOGVEX CRYSTAL joining world '{}'", SMOKE_WORLD);
+                client.createIntegratedServerLoader().start(SMOKE_WORLD, () -> {});
+                smokeStage++;
+            }
+            case 20 -> {
+                if (client.world == null || client.player == null) {
+                    if (smokeTick > SMOKE_TICKS - 200) {
+                        throw new IllegalStateException(
+                                "SMOKE FAILURE: world '" + SMOKE_WORLD + "' never finished loading");
+                    }
+                    return;
+                }
+                // The player and world exist now. The world-query snapshot must see the loaded
+                // block entities, and the world tick services must be running.
+                require(client.world.getRegistryKey() != null, "world has no registry key");
+                require(client.player.getInventory() != null, "player has no inventory");
+                com.logvex.crystal.world.WorldQuery.get().tick(client);
+                LOG.info("LOGVEX CRYSTAL in-world: dimension {} at {} {} {} ({} block entities)",
+                        client.world.getRegistryKey().getValue(),
+                        (int) client.player.getX(), (int) client.player.getY(), (int) client.player.getZ(),
+                        com.logvex.crystal.world.WorldQuery.get().size());
+                shot("03-in-world");
+                smokeStage++;
+            }
+            case 21 -> {
+                if (smokeTick < 900) {
+                    return;
+                }
+                // Enable a representative set of world-dependent modules and let them tick for
+                // real against the loaded world. Each module's tick is exception-isolated, so a
+                // throwing module records a failure rather than crashing the client - which is
+                // exactly what the error log check below catches.
+                for (String name : new String[]{"EntityEsp", "CrystalEsp", "StorageEsp", "HoleEsp",
+                        "AutoSprint", "SafeWalk", "AutoJump", "AutoTotem+", "AutoArmor", "AutoTool+"}) {
+                    var module = modules.byName(name);
+                    if (module == null || module.isAlwaysEnabled()) {
+                        continue;
+                    }
+                    if (!module.isEnabled()) {
+                        module.enable(modules);
+                    }
+                    module.tickSafely();
+                }
+                smokeStage++;
+            }
+            case 22 -> {
+                if (smokeTick < 1200) {
+                    return;
+                }
+                // Let the enabled modules run for a few hundred ticks, then assert none recorded a
+                // failure. This is the check the title-screen smoke cannot make: it proves the
+                // modules' in-world tick bodies actually execute without throwing.
+                for (String name : new String[]{"EntityEsp", "CrystalEsp", "StorageEsp", "HoleEsp",
+                        "AutoSprint", "SafeWalk", "AutoJump", "AutoTotem+", "AutoArmor", "AutoTool+"}) {
+                    var module = modules.byName(name);
+                    if (module != null && module.isEnabled()) {
+                        module.disable();
+                    }
+                }
+                int recorded = errors().totalRecorded();
+                LOG.info("LOGVEX CRYSTAL in-world modules ran ({} error(s) recorded)", recorded);
+                require(recorded == 0, "world-dependent modules recorded " + recorded
+                        + " failure(s): " + errors().latest());
+                shot("04-in-world-modules");
                 smokeStage++;
             }
             default -> {

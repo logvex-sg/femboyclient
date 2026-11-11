@@ -35,7 +35,6 @@ import com.logvex.crystal.setting.SettingGroup;
 import com.logvex.crystal.theme.Palette;
 import com.logvex.crystal.theme.ThemeManager;
 import com.logvex.crystal.util.Animator;
-import com.logvex.crystal.util.BestEffort;
 import com.logvex.crystal.util.ColorUtil;
 import java.util.ArrayList;
 import java.util.List;
@@ -124,6 +123,19 @@ public final class CommandCenterScreen extends Screen {
         return false;
     }
 
+    /**
+     * Honours the theme's Blur toggle. Vanilla calls this once per frame from
+     * {@code renderBackground}; when the toggle (or reduced motion) is off we skip the backdrop
+     * blur entirely rather than blurring a second time from {@code render}.
+     */
+    @Override
+    protected void applyBlur(DrawContext context) {
+        if (!theme.settings().blur || theme.settings().reducedMotion) {
+            return;
+        }
+        super.applyBlur(context);
+    }
+
     private void setStatus(String message) {
         this.status = message == null ? "" : message;
         this.statusAt = System.currentTimeMillis();
@@ -155,13 +167,9 @@ public final class CommandCenterScreen extends Screen {
                     ColorUtil.scaleAlpha(palette.accentGradientStart(), 0.10f * open),
                     ColorUtil.scaleAlpha(palette.accentGradientEnd(), 0.14f * open));
         }
-        if (theme.settings().blur && !theme.settings().reducedMotion) {
-            try {
-                context.applyBlur();
-            } catch (Throwable t) {
-                BestEffort.report("command-center-blur", "Command Center blur", t);
-            }
-        }
+        // The backdrop blur is applied by vanilla's per-frame renderBackground -> applyBlur pass;
+        // see the applyBlur override above. Blurring here too would throw "Can only blur once per
+        // frame".
 
         float scale = uiScale();
         var matrices = context.getMatrices();
